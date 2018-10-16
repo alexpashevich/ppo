@@ -33,19 +33,22 @@ torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
+logdir = os.path.join(args.logdir, args.timestep)
+# TODO: remove
+print('logdir ', logdir)
 try:
-    os.makedirs(args.log_dir)
+    os.makedirs(logdir)
 except OSError:
-    files = glob.glob(os.path.join(args.log_dir, '*.monitor.csv'))
+    files = glob.glob(os.path.join(logdir, '*.monitor.csv'))
     for f in files:
         os.remove(f)
 
-eval_log_dir = args.log_dir + "_eval"
+eval_logdir = os.path.join(logdir, "_eval")
 
 try:
-    os.makedirs(eval_log_dir)
+    os.makedirs(eval_logdir)
 except OSError:
-    files = glob.glob(os.path.join(eval_log_dir, '*.monitor.csv'))
+    files = glob.glob(os.path.join(eval_logdir, '*.monitor.csv'))
     for f in files:
         os.remove(f)
 
@@ -62,7 +65,7 @@ def main():
     num_steps_master = args.num_steps // args.timescale
     env_config = {'num_skills': args.num_skills, 'timescale': args.timescale}
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, args.log_dir, args.add_timestep, device, False, config=env_config)
+                         args.gamma, logdir, args.add_timestep, device, False, config=env_config)
 
     actor_critic = Policy(envs.observation_space.shape, envs.action_space,
                           base_kwargs={'recurrent': args.recurrent_policy})
@@ -118,8 +121,9 @@ def main():
 
         rollouts.after_update()
 
-        if j % args.save_interval == 0 and args.save_dir != "":
-            save_path = os.path.join(args.save_dir, args.algo)
+        # use the same save_dir and logdir
+        if j % args.save_interval == 0 and logdir != "":
+            save_path = os.path.join(logdir, args.algo)
             try:
                 os.makedirs(save_path)
             except OSError:
@@ -154,7 +158,7 @@ def main():
                 and j % args.eval_interval == 0):
             eval_envs = make_vec_envs(
                 args.env_name, args.seed + args.num_processes, args.num_processes,
-                args.gamma, eval_log_dir, args.add_timestep, device, True)
+                args.gamma, eval_logdir, args.add_timestep, device, True)
 
             vec_norm = get_vec_normalize(eval_envs)
             if vec_norm is not None:
@@ -191,7 +195,7 @@ def main():
         if args.vis and j % args.vis_interval == 0:
             try:
                 # Sometimes monitor doesn't properly flush the outputs
-                win = visdom_plot(viz, win, args.log_dir, args.env_name,
+                win = visdom_plot(viz, win, logdir, args.env_name,
                                   args.algo, args.num_frames)
             except IOError:
                 pass

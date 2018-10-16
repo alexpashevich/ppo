@@ -33,13 +33,13 @@ if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
 try:
-    os.makedirs(args.log_dir)
+    os.makedirs(args.logdir)
 except OSError:
-    files = glob.glob(os.path.join(args.log_dir, '*.monitor.csv'))
+    files = glob.glob(os.path.join(args.logdir, '*.monitor.csv'))
     for f in files:
         os.remove(f)
 
-eval_log_dir = args.log_dir + "_eval"
+eval_log_dir = os.path.join(args.logdir, "eval")
 
 try:
     os.makedirs(eval_log_dir)
@@ -59,7 +59,7 @@ def main():
         win = None
 
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                        args.gamma, args.log_dir, args.add_timestep, device, False)
+                        args.gamma, args.logdir, args.add_timestep, device, False)
 
     actor_critic = Policy(envs.observation_space.shape, envs.action_space,
         base_kwargs={'recurrent': args.recurrent_policy})
@@ -122,8 +122,9 @@ def main():
 
         rollouts.after_update()
 
-        if j % args.save_interval == 0 and args.save_dir != "":
-            save_path = os.path.join(args.save_dir, args.algo)
+        # use the same save_dir and log_dir
+        if j % args.save_interval == 0 and args.logdir != "":
+            save_path = os.path.join(args.logdir, args.algo)
             try:
                 os.makedirs(save_path)
             except OSError:
@@ -195,7 +196,7 @@ def main():
         if args.vis and j % args.vis_interval == 0:
             try:
                 # Sometimes monitor doesn't properly flush the outputs
-                win = visdom_plot(viz, win, args.log_dir, args.env_name,
+                win = visdom_plot(viz, win, args.logdir, args.env_name,
                                   args.algo, args.num_frames)
             except IOError:
                 pass
