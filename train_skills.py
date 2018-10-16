@@ -5,6 +5,7 @@ import time
 from collections import deque
 
 import gym
+import datetime # remove later
 import numpy as np
 import torch
 import torch.nn as nn
@@ -74,7 +75,6 @@ def main():
                         envs.observation_space.shape, envs.action_space,
                         actor_critic.recurrent_hidden_state_size)
 
-    import pudb; pudb.set_trace()
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
     rollouts.to(device)
@@ -102,6 +102,9 @@ def main():
             masks = torch.FloatTensor([[0.0] if done_ else [1.0]
                                        for done_ in done])
             rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks)
+
+        print('[{}]: done with {} timesteps'.format(datetime.datetime.now().time(),
+                                                    args.num_steps * args.num_processes))
 
         with torch.no_grad():
             next_value = actor_critic.get_value(rollouts.obs[-1],
