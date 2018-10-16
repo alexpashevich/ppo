@@ -34,14 +34,13 @@ if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
 logdir = os.path.join(args.logdir, args.timestamp)
-# TODO: remove
-print('logdir ', logdir)
 try:
     os.makedirs(logdir)
 except OSError:
     files = glob.glob(os.path.join(logdir, '*.monitor.csv'))
     for f in files:
         os.remove(f)
+logfile = open(os.path.join(logdir, 'logs.txt'), 'w')
 
 eval_logdir = os.path.join(logdir, "_eval")
 
@@ -51,6 +50,11 @@ except OSError:
     files = glob.glob(os.path.join(eval_logdir, '*.monitor.csv'))
     for f in files:
         os.remove(f)
+
+def print_log(log_str):
+    print(log_str)
+    logfile.write(log_str + '\n')
+    logfile.flush()
 
 
 def main():
@@ -107,7 +111,7 @@ def main():
                                        for done_ in done])
             rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks)
 
-        print('[{}]: done with {} timesteps'.format(datetime.datetime.now().time(),
+        print_log('[{}]: done with {} timesteps'.format(datetime.datetime.now().time(),
                                                     args.num_steps * args.num_processes))
 
         with torch.no_grad():
@@ -143,7 +147,7 @@ def main():
 
         if j % args.log_interval == 0 and len(episode_rewards) > 1:
             end = time.time()
-            print("Updates {}, num timesteps master {}, FPS {} \n Last {} training episodes: mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}\n".
+            print_log("Updates {}, num timesteps master {}, FPS {} \n Last {} training episodes: mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}\n".
                 format(j, total_num_steps,
                        int(total_num_steps / (end - start)),
                        len(episode_rewards),
@@ -188,7 +192,7 @@ def main():
 
             eval_envs.close()
 
-            print(" Evaluation using {} episodes: mean reward {:.5f}\n".
+            print_log(" Evaluation using {} episodes: mean reward {:.5f}\n".
                 format(len(eval_episode_rewards),
                        np.mean(eval_episode_rewards)))
 

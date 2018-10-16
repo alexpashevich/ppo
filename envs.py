@@ -84,7 +84,7 @@ def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, conf
             _, domain, task = env_id.split('.')
             env = dm_control2gym.make(domain_name=domain, task_name=task)
         elif 'UR5' in env_id:
-            print('creating MiME env with id {}'.format(seed + rank))
+            print('creating MiME env with id {}'.format(rank))
             env = MiMEEnv(env_id, config)
         else:
             env = gym.make(env_id)
