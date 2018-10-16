@@ -71,6 +71,6 @@ def get_args():
                         help='master timescale')
     args = parser.parse_args()
 
-    args.cuda = not args.no_cuda and torch.cuda.is_available()
+    # args.cuda = not args.no_cuda and torch.cuda.is_available()
 
     return args
