@@ -57,7 +57,8 @@ def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets):
 
         # If the input has shape (W,H,3), wrap for PyTorch convolutions
         obs_shape = env.observation_space.shape
-        if len(obs_shape) == 3 and obs_shape[2] in [1, 3]:
+        # TODO: remove the first condition (added for MiME)
+        if obs_shape and len(obs_shape) == 3 and obs_shape[2] in [1, 3]:
             env = TransposeImage(env)
 
         return env
@@ -74,7 +75,8 @@ def make_vec_envs(env_name, seed, num_processes, gamma, log_dir, add_timestep,
     else:
         envs = DummyVecEnv(envs)
 
-    if len(envs.observation_space.shape) == 1:
+    # TODO: MiME is never normalized
+    if envs.observation_space.shape and len(envs.observation_space.shape) == 1:
         if gamma is None:
             envs = VecNormalize(envs, ret=False)
         else:
@@ -84,7 +86,8 @@ def make_vec_envs(env_name, seed, num_processes, gamma, log_dir, add_timestep,
 
     if num_frame_stack is not None:
         envs = VecPyTorchFrameStack(envs, num_frame_stack, device)
-    elif len(envs.observation_space.shape) == 3:
+    elif envs.observation_space.shape and len(envs.observation_space.shape) == 3:
+        # TODO: does not work for MiME
         envs = VecPyTorchFrameStack(envs, 4, device)
 
     return envs
