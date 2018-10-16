@@ -33,7 +33,7 @@ torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
-logdir = os.path.join(args.logdir, args.timestep)
+logdir = os.path.join(args.logdir, args.timestamp)
 # TODO: remove
 print('logdir ', logdir)
 try:
