@@ -62,6 +62,9 @@ class MiMEEnv(object):
             action_dict = self.env.unwrapped.scene.script_subtask(action)
             obs, rew_step, done, info = self.env.step(action_dict)
             reward += rew_step
+            end_of_episode = self.env._elapsed_steps >= self.env._max_episode_steps
+            # i think that this is not necessary, doublecheck later
+            done = done or end_of_episode
             if done:
                 break
         observation = self._obs_dict_to_numpy(obs)
