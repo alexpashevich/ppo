@@ -5,7 +5,7 @@ import torch
 
 def get_args():
     parser = argparse.ArgumentParser(description='RL')
-    parser.add_argument('--algo', default='a2c',
+    parser.add_argument('--algo', default='ppo',
                         help='algorithm to use: a2c | ppo | acktr')
     parser.add_argument('--lr', type=float, default=7e-4,
                         help='learning rate (default: 7e-4)')
@@ -47,13 +47,14 @@ def get_args():
                         help='vis interval, one log per n updates (default: 100)')
     parser.add_argument('--num-frames', type=int, default=10e6,
                         help='number of frames to train (default: 10e6)')
-    parser.add_argument('--env-name', default='PongNoFrameskip-v4',
+    # parser.add_argument('--env-name', default='PongNoFrameskip-v4',
+    parser.add_argument('--env-name', default='UR5-BowlCamEnv-v0',
                         help='environment to train on (default: PongNoFrameskip-v4)')
     parser.add_argument('--log-dir', default='/tmp/gym/',
                         help='directory to save agent logs (default: /tmp/gym)')
     parser.add_argument('--save-dir', default='./trained_models/',
                         help='directory to save agent logs (default: ./trained_models/)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
+    parser.add_argument('--no-cuda', action='store_true', default=True,
                         help='disables CUDA training')
     parser.add_argument('--add-timestep', action='store_true', default=False,
                         help='add timestep to observations')
@@ -63,6 +64,11 @@ def get_args():
                         help='enable visdom visualization')
     parser.add_argument('--port', type=int, default=8097,
                         help='port to run the server on (default: 8097)')
+    # my args
+    parser.add_argument('--num-skills', type=int, default=5,
+                        help='number of skills')
+    parser.add_argument('--timescale', type=int, default=10,
+                        help='master timescale')
     args = parser.parse_args()
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()

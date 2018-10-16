@@ -12,12 +12,12 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 import algo
-from .arguments import get_args
-from .envs import make_vec_envs
-from .model import Policy
-from .storage import RolloutStorage
-from .utils import get_vec_normalize
-from .visualize import visdom_plot
+from arguments import get_args
+from envs import make_vec_envs
+from model import Policy
+from storage import RolloutStorage
+from utils import get_vec_normalize
+from visualize import visdom_plot
 
 args = get_args()
 

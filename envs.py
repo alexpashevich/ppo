@@ -3,7 +3,7 @@ import os
 import gym
 import numpy as np
 import torch
-from gym.spaces.box import Box
+from gym.spaces import Box, Discrete
 
 from baselines import bench
 from baselines.common.atari_wrappers import make_atari, wrap_deepmind
@@ -28,12 +28,61 @@ try:
 except ImportError:
     pass
 
+from mime.agent.agent import Agent
 
-def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets):
+class MiMEEnv(object):
+    def __init__(self, env_name, config):
+        self.env = gym.make(env_name)
+        self.num_skills = config['num_skills']
+        self.timescale = config['timescale']
+        # some copypasting
+        self.reward_range = self.env.reward_range
+        self.metadata = self.env.metadata
+        self.spec = self.env.spec
+        # BowlEnv-v0 specific
+        assert len(self.env.observation_space.spaces) == 7
+
+    @property
+    def observation_space(self):
+        return Box(-np.inf, np.inf, (19,), dtype=np.float)
+
+    @property
+    def action_space(self):
+        return Discrete(self.num_skills)
+
+    def _obs_dict_to_numpy(self, obs):
+        observation = (obs['tool_position'] + obs['linear_velocity'] + (obs['grip_velocity'],) +
+                       obs['cube_position'] + obs['bowl_position'] +
+                       tuple(obs['distance_to_cube']) + tuple(obs['distance_to_bowl']))
+        return np.array(observation)
+
+    def step(self, action):
+        reward = 0
+        for i in range(self.timescale):
+            action_dict = self.env.unwrapped.scene.script_subtask(action)
+            obs, rew_step, done, info = self.env.step(action_dict)
+            reward += rew_step
+            if done:
+                break
+        observation = self._obs_dict_to_numpy(obs)
+        reward /= self.timescale
+        return observation, reward, done, info
+
+    def reset(self):
+        obs = self.env.reset()
+        return self._obs_dict_to_numpy(obs)
+
+    def seed(self, seed):
+        self.env.seed(seed)
+
+def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, config):
     def _thunk():
         if env_id.startswith("dm"):
             _, domain, task = env_id.split('.')
             env = dm_control2gym.make(domain_name=domain, task_name=task)
+        elif 'UR5' in env_id:
+            print('creating MiME env with id {}'.format(seed + rank))
+            env = MiMEEnv(env_id, config)
         else:
             env = gym.make(env_id)
         is_atari = hasattr(gym.envs, 'atari') and isinstance(
@@ -66,8 +115,8 @@ def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets):
     return _thunk
 
 def make_vec_envs(env_name, seed, num_processes, gamma, log_dir, add_timestep,
-                  device, allow_early_resets, num_frame_stack=None):
-    envs = [make_env(env_name, seed, i, log_dir, add_timestep, allow_early_resets)
+                  device, allow_early_resets, num_frame_stack=None, config=None):
+    envs = [make_env(env_name, seed, i, log_dir, add_timestep, allow_early_resets, config)
             for i in range(num_processes)]
 
     if len(envs) > 1:
