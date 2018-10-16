@@ -59,6 +59,7 @@ def main():
         viz = Visdom(port=args.port)
         win = None
 
+    num_steps_master = args.num_steps // args.timescale
     env_config = {'num_skills': args.num_skills, 'timescale': args.timescale}
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
                          args.gamma, args.log_dir, args.add_timestep, device, False, config=env_config)
@@ -71,7 +72,7 @@ def main():
                      args.value_loss_coef, args.entropy_coef, lr=args.lr,
                      eps=args.eps, max_grad_norm=args.max_grad_norm)
 
-    rollouts = RolloutStorage(args.num_steps, args.num_processes,
+    rollouts = RolloutStorage(num_steps_master, args.num_processes,
                         envs.observation_space.shape, envs.action_space,
                         actor_critic.recurrent_hidden_state_size)
 
@@ -83,7 +84,7 @@ def main():
 
     start = time.time()
     for j in range(num_updates):
-        for step in range(args.num_steps):
+        for step in range(num_steps_master):
             # Sample actions
             with torch.no_grad():
                 value, action, action_log_prob, recurrent_hidden_states = actor_critic.act(
@@ -134,11 +135,11 @@ def main():
 
             torch.save(save_model, os.path.join(save_path, args.env_name + ".pt"))
 
-        total_num_steps = (j + 1) * args.num_processes * args.num_steps
+        total_num_steps = (j + 1) * args.num_processes * num_steps_master
 
         if j % args.log_interval == 0 and len(episode_rewards) > 1:
             end = time.time()
-            print("Updates {}, num timesteps {}, FPS {} \n Last {} training episodes: mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}\n".
+            print("Updates {}, num timesteps master {}, FPS {} \n Last {} training episodes: mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}\n".
                 format(j, total_num_steps,
                        int(total_num_steps / (end - start)),
                        len(episode_rewards),
