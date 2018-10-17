@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from gym.spaces import Box, Discrete
 from copy import deepcopy
+import itertools
 
 from baselines import bench
 from baselines.common.atari_wrappers import make_atari, wrap_deepmind
@@ -64,32 +65,29 @@ class MiMEEnv(object):
 
     def _print_action(self, action):
         if action == 0:
-            print('master action go to cube')
+            print('master action: go to cube and release')
         elif action == 1:
-            print('master action go down')
+            print('master action: go down')
         elif action == 2:
-            print('master action go up')
+            print('master action: grasp')
         elif action == 3:
-            print('master action go to bowl')
+            print('master action: go up')
         elif action == 4:
-            print('master action release')
-        elif action == 5:
-            print('master action grasp')
+            print('master action: go to bowl and release')
 
     def step(self, action):
         reward = 0
         if self.render:
             self._print_action(action)
-        action_script = self.env.unwrapped.scene.script_subtask(action)
-        assert len(action_script) == 1
-        action_script = action_script[0]
+        action_scripts = self.env.unwrapped.scene.script_subtask(action)
+        action_chain = itertools.chain(*action_scripts)
         action_dict = {
             'linear_velocity': [0, 0, 0],
             'angular_velocity': [0, 0, 0],
             'grip_velocity': 0}
         action_dict_null = deepcopy(action_dict)
         for i in range(self.timescale):
-            action_dict.update(next(action_script, action_dict_null))
+            action_dict.update(next(action_chain, action_dict_null))
             obs, rew_step, done, info = self.env.step(action_dict)
             reward += rew_step
             end_of_episode = self.env._elapsed_steps >= self.env._max_episode_steps

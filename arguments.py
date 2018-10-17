@@ -40,7 +40,7 @@ def get_args():
     parser.add_argument('--clip-param', type=float, default=0.2,
                         help='ppo clip parameter (default: 0.2)')
     # not gridsearch
-    parser.add_argument('--num-steps', type=int, default=500,
+    parser.add_argument('--num-steps', type=int, default=150,
                         help='number of forward steps in A2C (default: 5)') # changed to 50
     parser.add_argument('--log-interval', type=int, default=10,
                         help='log interval, one log per n updates (default: 10)')
@@ -71,9 +71,9 @@ def get_args():
     parser.add_argument('--port', type=int, default=8097,
                         help='port to run the server on (default: 8097)')
     # my args
-    parser.add_argument('--num-skills', type=int, default=6,
+    parser.add_argument('--num-skills', type=int, default=5,
                         help='number of skills')
-    parser.add_argument('--timescale', type=int, default=20,
+    parser.add_argument('--timescale', type=int, default=10,
                         help='master timescale')
     parser.add_argument('--render', action='store_true', default=False,
                         help='whether to render one environment')
