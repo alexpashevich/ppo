@@ -4,6 +4,7 @@ import gym
 import numpy as np
 import torch
 from gym.spaces import Box, Discrete
+from copy import deepcopy
 
 from baselines import bench
 from baselines.common.atari_wrappers import make_atari, wrap_deepmind
@@ -31,16 +32,21 @@ except ImportError:
 from mime.agent.agent import Agent
 
 class MiMEEnv(object):
-    def __init__(self, env_name, config):
+    def __init__(self, env_name, config, id=0):
         self.env = gym.make(env_name)
         self.num_skills = config['num_skills']
         self.timescale = config['timescale']
+        self.render = config['render'] and id == 0
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
         self.spec = self.env.spec
         # BowlEnv-v0 specific
         assert len(self.env.observation_space.spaces) == 7
+        # activate rendering
+        if self.render:
+            scene = self.env.unwrapped.scene
+            scene.renders(True)
 
     @property
     def observation_space(self):
@@ -56,10 +62,34 @@ class MiMEEnv(object):
                        tuple(obs['distance_to_cube']) + tuple(obs['distance_to_bowl']))
         return np.array(observation)
 
+    def _print_action(self, action):
+        if action == 0:
+            print('master action go to cube')
+        elif action == 1:
+            print('master action go down')
+        elif action == 2:
+            print('master action go up')
+        elif action == 3:
+            print('master action go to bowl')
+        elif action == 4:
+            print('master action release')
+        elif action == 5:
+            print('master action grasp')
+
     def step(self, action):
         reward = 0
+        if self.render:
+            self._print_action(action)
+        action_script = self.env.unwrapped.scene.script_subtask(action)
+        assert len(action_script) == 1
+        action_script = action_script[0]
+        action_dict = {
+            'linear_velocity': [0, 0, 0],
+            'angular_velocity': [0, 0, 0],
+            'grip_velocity': 0}
+        action_dict_null = deepcopy(action_dict)
         for i in range(self.timescale):
-            action_dict = self.env.unwrapped.scene.script_subtask(action)
+            action_dict.update(next(action_script, action_dict_null))
             obs, rew_step, done, info = self.env.step(action_dict)
             reward += rew_step
             end_of_episode = self.env._elapsed_steps >= self.env._max_episode_steps
@@ -85,7 +115,7 @@ def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, conf
             env = dm_control2gym.make(domain_name=domain, task_name=task)
         elif 'UR5' in env_id:
             print('creating MiME env with id {}'.format(rank))
-            env = MiMEEnv(env_id, config)
+            env = MiMEEnv(env_id, config, rank)
         else:
             env = gym.make(env_id)
         is_atari = hasattr(gym.envs, 'atari') and isinstance(

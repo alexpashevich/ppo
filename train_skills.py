@@ -67,7 +67,9 @@ def main():
         win = None
 
     num_steps_master = args.num_steps // args.timescale
-    env_config = {'num_skills': args.num_skills, 'timescale': args.timescale}
+    env_config = {'num_skills': args.num_skills,
+                  'timescale': args.timescale,
+                  'render': args.render}
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
                          args.gamma, logdir, args.add_timestep, device, False, config=env_config)
 

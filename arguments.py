@@ -71,10 +71,12 @@ def get_args():
     parser.add_argument('--port', type=int, default=8097,
                         help='port to run the server on (default: 8097)')
     # my args
-    parser.add_argument('--num-skills', type=int, default=5,
+    parser.add_argument('--num-skills', type=int, default=6,
                         help='number of skills')
-    parser.add_argument('--timescale', type=int, default=100,
+    parser.add_argument('--timescale', type=int, default=20,
                         help='master timescale')
+    parser.add_argument('--render', action='store_true', default=False,
+                        help='whether to render one environment')
     args = parser.parse_args()
 
     # args.cuda = not args.no_cuda and torch.cuda.is_available()
