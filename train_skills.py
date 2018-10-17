@@ -111,8 +111,8 @@ def main():
                                        for done_ in done])
             rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks)
 
-        print_log('[{}]: done with {} timesteps'.format(datetime.datetime.now().time(),
-                                                    args.num_steps * args.num_processes))
+        #print_log('[{}]: done with {} timesteps'.format(datetime.datetime.now().time(),
+        #                                            args.num_steps * args.num_processes))
 
         with torch.no_grad():
             next_value = actor_critic.get_value(rollouts.obs[-1],
@@ -162,7 +162,7 @@ def main():
                 and j % args.eval_interval == 0):
             eval_envs = make_vec_envs(
                 args.env_name, args.seed + args.num_processes, args.num_processes,
-                args.gamma, eval_logdir, args.add_timestep, device, True)
+                args.gamma, eval_logdir, args.add_timestep, device, True, config=env_config)
 
             vec_norm = get_vec_normalize(eval_envs)
             if vec_norm is not None:
