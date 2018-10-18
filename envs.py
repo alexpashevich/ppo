@@ -35,9 +35,9 @@ from mime.agent.agent import Agent
 class MiMEEnv(object):
     def __init__(self, env_name, config, id=0):
         self.env = gym.make(env_name)
-        self.num_skills = config['num_skills']
-        self.timescale = config['timescale']
-        self.render = config['render'] and id == 0
+        self.num_skills = config.num_skills
+        self.timescale = config.timescale
+        self._render = config.render and id == 0
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
@@ -45,7 +45,7 @@ class MiMEEnv(object):
         # BowlEnv-v0 specific
         assert len(self.env.observation_space.spaces) == 7
         # activate rendering
-        if self.render:
+        if self._render:
             scene = self.env.unwrapped.scene
             scene.renders(True)
 
@@ -77,7 +77,7 @@ class MiMEEnv(object):
 
     def step(self, action):
         reward = 0
-        if self.render:
+        if self._render:
             self._print_action(action)
         action_scripts = self.env.unwrapped.scene.script_subtask(action)
         action_chain = itertools.chain(*action_scripts)
@@ -100,20 +100,25 @@ class MiMEEnv(object):
         return observation, reward, done, info
 
     def reset(self):
+        if self._render:
+            print('env is reset')
         obs = self.env.reset()
         return self._obs_dict_to_numpy(obs)
 
     def seed(self, seed):
         self.env.seed(seed)
 
-def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, config):
+    def render(self, mode):
+        self.env.render(mode)
+
+def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, env_config):
     def _thunk():
         if env_id.startswith("dm"):
             _, domain, task = env_id.split('.')
             env = dm_control2gym.make(domain_name=domain, task_name=task)
         elif 'UR5' in env_id:
             print('creating MiME env with id {}'.format(rank))
-            env = MiMEEnv(env_id, config, rank)
+            env = MiMEEnv(env_id, env_config, rank)
         else:
             env = gym.make(env_id)
         is_atari = hasattr(gym.envs, 'atari') and isinstance(
@@ -146,8 +151,8 @@ def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, conf
     return _thunk
 
 def make_vec_envs(env_name, seed, num_processes, gamma, log_dir, add_timestep,
-                  device, allow_early_resets, num_frame_stack=None, config=None):
-    envs = [make_env(env_name, seed, i, log_dir, add_timestep, allow_early_resets, config)
+                  device, allow_early_resets, num_frame_stack=None, env_config=None):
+    envs = [make_env(env_name, seed, i, log_dir, add_timestep, allow_early_resets, env_config)
             for i in range(num_processes)]
 
     if len(envs) > 1:

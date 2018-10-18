@@ -2,7 +2,6 @@ import os
 import time
 from collections import deque
 
-import numpy as np
 import torch
 
 # local imports
@@ -11,7 +10,6 @@ from arguments import get_args
 from envs import make_vec_envs
 from model import Policy
 from storage import RolloutStorage
-from visualize import visdom_plot
 
 args = get_args()
 
@@ -25,11 +23,11 @@ def main():
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 
     # TODO: do not use it in the future
-    env_config = {'num_skills': args.num_skills,
-                  'timescale': args.timescale,
-                  'render': args.render}
+    # env_config = {'num_skills': args.num_skills,
+    #               'timescale': args.timescale,
+    #               'render': args.render}
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, logdir, args.add_timestep, device, False, config=env_config)
+                         args.gamma, logdir, args.add_timestep, device, False, env_config=args)
 
     policy = Policy(envs.observation_space.shape, envs.action_space,
                     base_kwargs={'recurrent': args.recurrent_policy})
@@ -89,16 +87,8 @@ def main():
         if (args.eval_interval is not None
                 and len(episode_rewards) > 1
                 and epoch % args.eval_interval == 0):
-            episode_rewards = utils.evaluate(policy, args, logdir, device, env_config, envs)
+            episode_rewards = utils.evaluate(policy, args, logdir, device, envs)
             log.log_eval(episode_rewards, total_num_env_steps)
-
-        # if args.vis and epoch % args.vis_interval == 0:
-        #     try:
-        #         # Sometimes monitor doesn't properly flush the outputs
-        #         win = visdom_plot(viz, win, logdir, args.env_name,
-        #                           args.algo, args.num_frames)
-        #     except IOError:
-        #         pass
 
 
 if __name__ == "__main__":

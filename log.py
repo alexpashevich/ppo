@@ -45,8 +45,7 @@ def log_eval(episode_rewards, total_steps):
     add_summary('reward/mean_reward', np.mean(episode_rewards), total_steps, 'eval')
     add_summary('reward/max_reward', np.max(episode_rewards), total_steps, 'eval')
 
-def save_model(logdir, policy, cuda, envs):
-    save_path = os.path.join(logdir, 'model')
+def save_model(save_path, policy, cuda, envs):
     try:
         os.makedirs(save_path)
     except OSError:

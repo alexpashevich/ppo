@@ -1,6 +1,5 @@
 import argparse
-
-import torch
+import datetime
 
 
 def get_args():
@@ -56,7 +55,8 @@ def get_args():
                         help='environment to train on (default: PongNoFrameskip-v4)')
     parser.add_argument('--logdir', default='./logs/',
                         help='directory to save agent logs (default: ./logs/)')
-    parser.add_argument('--timestamp', default='now',
+    parser.add_argument('--timestamp', type=str,
+                        default=datetime.datetime.now().strftime('%Y%m%dT%H%M%S'),
                         help='timestep for a given training')
     # parser.add_argument('--save-dir', default='./trained_models/',
     #                     help='directory to save agent logs (default: ./trained_models/)')
@@ -77,8 +77,5 @@ def get_args():
     parser.add_argument('--num-eval-episodes', type=int, default=32,
                         help='numer of episodes to use in evluation')
     args = parser.parse_args()
-
-
-    # args.cuda = not args.no_cuda and torch.cuda.is_available()
 
     return args

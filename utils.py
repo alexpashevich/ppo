@@ -90,10 +90,11 @@ def set_up_training(args):
             os.remove(f)
     return logdir, logfile, eval_logdir
 
-def evaluate(policy, args, logdir, device, env_config, envs):
+
+def evaluate(policy, args, logdir, device, envs):
     eval_envs = make_vec_envs(
         args.env_name, args.seed + args.num_processes, args.num_processes,
-        args.gamma, logdir, args.add_timestep, device, True, config=env_config)
+        args.gamma, logdir, args.add_timestep, device, True, env_config=args)
 
     vec_norm = get_vec_normalize(eval_envs)
     if vec_norm is not None:
