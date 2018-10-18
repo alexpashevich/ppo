@@ -22,10 +22,6 @@ def main():
     device = torch.device("cuda:0" if args.cuda else "cpu")
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 
-    # TODO: do not use it in the future
-    # env_config = {'num_skills': args.num_skills,
-    #               'timescale': args.timescale,
-    #               'render': args.render}
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
                          args.gamma, logdir, args.add_timestep, device, False, env_config=args)
 
