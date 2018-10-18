@@ -5,7 +5,6 @@ import time
 from collections import deque
 
 import gym
-import datetime # remove later
 import numpy as np
 import torch
 import torch.nn as nn
@@ -33,28 +32,21 @@ torch.manual_seed(args.seed)
 if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
-logdir = os.path.join(args.logdir, args.timestamp)
 try:
-    os.makedirs(logdir)
+    os.makedirs(args.logdir)
 except OSError:
-    files = glob.glob(os.path.join(logdir, '*.monitor.csv'))
-    for f in files:
-        os.remove(f)
-logfile = open(os.path.join(logdir, 'logs.txt'), 'w')
-
-eval_logdir = os.path.join(logdir, "_eval")
-
-try:
-    os.makedirs(eval_logdir)
-except OSError:
-    files = glob.glob(os.path.join(eval_logdir, '*.monitor.csv'))
+    files = glob.glob(os.path.join(args.logdir, '*.monitor.csv'))
     for f in files:
         os.remove(f)
 
-def print_log(log_str):
-    print(log_str)
-    logfile.write(log_str + '\n')
-    logfile.flush()
+eval_log_dir = os.path.join(args.logdir, "eval")
+
+try:
+    os.makedirs(eval_log_dir)
+except OSError:
+    files = glob.glob(os.path.join(eval_log_dir, '*.monitor.csv'))
+    for f in files:
+        os.remove(f)
 
 
 def main():
@@ -66,22 +58,28 @@ def main():
         viz = Visdom(port=args.port)
         win = None
 
-    num_steps_master = args.num_steps // args.timescale
-    env_config = {'num_skills': args.num_skills,
-                  'timescale': args.timescale,
-                  'render': args.render}
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, logdir, args.add_timestep, device, False, config=env_config)
+                        args.gamma, args.logdir, args.add_timestep, device, False)
 
     actor_critic = Policy(envs.observation_space.shape, envs.action_space,
-                          base_kwargs={'recurrent': args.recurrent_policy})
+        base_kwargs={'recurrent': args.recurrent_policy})
     actor_critic.to(device)
 
-    agent = algo.PPO(actor_critic, args.clip_param, args.ppo_epoch, args.num_mini_batch,
-                     args.value_loss_coef, args.entropy_coef, lr=args.lr,
-                     eps=args.eps, max_grad_norm=args.max_grad_norm)
+    if args.algo == 'a2c':
+        agent = algo.A2C_ACKTR(actor_critic, args.value_loss_coef,
+                               args.entropy_coef, lr=args.lr,
+                               eps=args.eps, alpha=args.alpha,
+                               max_grad_norm=args.max_grad_norm)
+    elif args.algo == 'ppo':
+        agent = algo.PPO(actor_critic, args.clip_param, args.ppo_epoch, args.num_mini_batch,
+                         args.value_loss_coef, args.entropy_coef, lr=args.lr,
+                               eps=args.eps,
+                               max_grad_norm=args.max_grad_norm)
+    elif args.algo == 'acktr':
+        agent = algo.A2C_ACKTR(actor_critic, args.value_loss_coef,
+                               args.entropy_coef, acktr=True)
 
-    rollouts = RolloutStorage(num_steps_master, args.num_processes,
+    rollouts = RolloutStorage(args.num_steps, args.num_processes,
                         envs.observation_space.shape, envs.action_space,
                         actor_critic.recurrent_hidden_state_size)
 
@@ -93,7 +91,7 @@ def main():
 
     start = time.time()
     for j in range(num_updates):
-        for step in range(num_steps_master):
+        for step in range(args.num_steps):
             # Sample actions
             with torch.no_grad():
                 value, action, action_log_prob, recurrent_hidden_states = actor_critic.act(
@@ -113,9 +111,6 @@ def main():
                                        for done_ in done])
             rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks)
 
-        #print_log('[{}]: done with {} timesteps'.format(datetime.datetime.now().time(),
-        #                                            args.num_steps * args.num_processes))
-
         with torch.no_grad():
             next_value = actor_critic.get_value(rollouts.obs[-1],
                                                 rollouts.recurrent_hidden_states[-1],
@@ -127,9 +122,9 @@ def main():
 
         rollouts.after_update()
 
-        # use the same save_dir and logdir
-        if j % args.save_interval == 0 and logdir != "":
-            save_path = os.path.join(logdir, args.algo)
+        # use the same save_dir and log_dir
+        if j % args.save_interval == 0 and args.logdir != "":
+            save_path = os.path.join(args.logdir, args.algo)
             try:
                 os.makedirs(save_path)
             except OSError:
@@ -145,11 +140,11 @@ def main():
 
             torch.save(save_model, os.path.join(save_path, args.env_name + ".pt"))
 
-        total_num_steps = (j + 1) * args.num_processes * num_steps_master
+        total_num_steps = (j + 1) * args.num_processes * args.num_steps
 
         if j % args.log_interval == 0 and len(episode_rewards) > 1:
             end = time.time()
-            print_log("Updates {}, num timesteps master {}, FPS {} \n Last {} training episodes: mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}\n".
+            print("Updates {}, num timesteps {}, FPS {} \n Last {} training episodes: mean/median reward {:.1f}/{:.1f}, min/max reward {:.1f}/{:.1f}\n".
                 format(j, total_num_steps,
                        int(total_num_steps / (end - start)),
                        len(episode_rewards),
@@ -164,7 +159,7 @@ def main():
                 and j % args.eval_interval == 0):
             eval_envs = make_vec_envs(
                 args.env_name, args.seed + args.num_processes, args.num_processes,
-                args.gamma, eval_logdir, args.add_timestep, device, True, config=env_config)
+                args.gamma, eval_log_dir, args.add_timestep, device, True)
 
             vec_norm = get_vec_normalize(eval_envs)
             if vec_norm is not None:
@@ -194,14 +189,14 @@ def main():
 
             eval_envs.close()
 
-            print_log(" Evaluation using {} episodes: mean reward {:.5f}\n".
+            print(" Evaluation using {} episodes: mean reward {:.5f}\n".
                 format(len(eval_episode_rewards),
                        np.mean(eval_episode_rewards)))
 
         if args.vis and j % args.vis_interval == 0:
             try:
                 # Sometimes monitor doesn't properly flush the outputs
-                win = visdom_plot(viz, win, logdir, args.env_name,
+                win = visdom_plot(viz, win, args.logdir, args.env_name,
                                   args.algo, args.num_frames)
             except IOError:
                 pass

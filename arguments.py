@@ -40,7 +40,7 @@ def get_args():
     parser.add_argument('--clip-param', type=float, default=0.2,
                         help='ppo clip parameter (default: 0.2)')
     # not gridsearch
-    parser.add_argument('--num-steps', type=int, default=150,
+    parser.add_argument('--num-frames-per-update', type=int, default=150,
                         help='number of forward steps in A2C (default: 5)') # changed to 50
     parser.add_argument('--log-interval', type=int, default=10,
                         help='log interval, one log per n updates (default: 10)')
@@ -48,8 +48,8 @@ def get_args():
                         help='save interval, one save per n updates (default: 100)')
     parser.add_argument('--eval-interval', type=int, default=None,
                         help='eval interval, one eval per n updates (default: None)')
-    parser.add_argument('--vis-interval', type=int, default=100,
-                        help='vis interval, one log per n updates (default: 100)')
+    # parser.add_argument('--vis-interval', type=int, default=100,
+    #                     help='vis interval, one log per n updates (default: 100)')
     parser.add_argument('--num-frames', type=int, default=30e7,
                         help='number of frames to train (default: 10e6)')
     parser.add_argument('--env-name', default='UR5-BowlEnv-v0',
@@ -66,10 +66,6 @@ def get_args():
                         help='add timestep to observations')
     parser.add_argument('--recurrent-policy', action='store_true', default=False,
                         help='use a recurrent policy')
-    parser.add_argument('--vis', action='store_true', default=False,
-                        help='enable visdom visualization')
-    parser.add_argument('--port', type=int, default=8097,
-                        help='port to run the server on (default: 8097)')
     # my args
     parser.add_argument('--num-skills', type=int, default=5,
                         help='number of skills')
@@ -77,7 +73,11 @@ def get_args():
                         help='master timescale')
     parser.add_argument('--render', action='store_true', default=False,
                         help='whether to render one environment')
+    # new
+    parser.add_argument('--num-eval-episodes', type=int, default=32,
+                        help='numer of episodes to use in evluation')
     args = parser.parse_args()
+
 
     # args.cuda = not args.no_cuda and torch.cuda.is_available()
 
