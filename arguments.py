@@ -20,9 +20,9 @@ def get_args():
                         help='learning rate (default: 7e-4)')
     parser.add_argument('--value-loss-coef', type=float, default=0.5,
                         help='value loss coefficient (default: 0.5)')
-    parser.add_argument('--ppo-epoch', type=int, default=4,
+    parser.add_argument('--ppo-epoch', type=int, default=5,
                         help='number of ppo epochs (default: 4)')
-    parser.add_argument('--num-mini-batch', type=int, default=32,
+    parser.add_argument('--num-mini-batch', type=int, default=16,
                         help='number of batches for ppo (default: 32)')
     parser.add_argument('--entropy-coef', type=float, default=0.01,
                         help='entropy term coefficient (default: 0.01)')
@@ -39,7 +39,7 @@ def get_args():
     parser.add_argument('--clip-param', type=float, default=0.2,
                         help='ppo clip parameter (default: 0.2)')
     # not gridsearch
-    parser.add_argument('--num-frames-per-update', type=int, default=150,
+    parser.add_argument('--num-frames-per-update', type=int, default=300,
                         help='number of forward steps in A2C (default: 5)') # changed to 50
     parser.add_argument('--log-interval', type=int, default=10,
                         help='log interval, one log per n updates (default: 10)')
@@ -67,12 +67,12 @@ def get_args():
     parser.add_argument('--recurrent-policy', action='store_true', default=False,
                         help='use a recurrent policy')
     # my args
-    parser.add_argument('--num-skills', type=int, default=5,
+    parser.add_argument('--num-skills', type=int, default=4,
                         help='number of skills')
-    parser.add_argument('--timescale', type=int, default=10,
+    parser.add_argument('--timescale', type=int, default=20,
                         help='master timescale')
     parser.add_argument('--render', action='store_true', default=False,
-                        help='whether to render one environment')
+                        help='whether to render the evaluation')
     # new
     parser.add_argument('--num-eval-episodes', type=int, default=32,
                         help='numer of episodes to use in evluation')

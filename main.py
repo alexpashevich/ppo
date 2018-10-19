@@ -14,19 +14,23 @@ from storage import RolloutStorage
 args = get_args()
 
 num_updates = int(args.num_frames) // args.num_frames_per_update // args.num_processes
-logdir, logfile, eval_logdir = utils.set_up_training(args)
-# print_log = lambda log_str: utils.print_log(log_str, logfile)
 
 def main():
-    torch.set_num_threads(1)
-    device = torch.device("cuda:0" if args.cuda else "cpu")
+    device, logdir, eval_logdir = utils.set_up_training(args)
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 
+    render = args.render # save it for the evaluation
+    args.render = False # we do not want to render the training envs
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, logdir, args.add_timestep, device, False, env_config=args)
-
-    policy = Policy(envs.observation_space.shape, envs.action_space,
-                    base_kwargs={'recurrent': args.recurrent_policy})
+                         args.gamma, logdir, args.add_timestep, device, False,
+                         env_config=args)
+    policy, ob_rms, start_epoch = utils.try_to_load_policy(args, logdir, eval_logdir)
+    if policy:
+        utils.get_vec_normalize(envs).ob_rms = ob_rms
+    else:
+        start_epoch = 0
+        policy = Policy(envs.observation_space.shape, envs.action_space,
+                        base_kwargs={'recurrent': args.recurrent_policy})
     policy.to(device)
 
     agent = algo.PPO(policy, args.clip_param, args.ppo_epoch, args.num_mini_batch,
@@ -42,10 +46,11 @@ def main():
     rollouts.obs[0].copy_(obs)
     rollouts.to(device)
 
-    episode_rewards = deque([0] * args.num_eval_episodes, maxlen=args.num_eval_episodes)
+    rewards_train = deque([0]*100, maxlen=100)
 
     start = time.time()
-    for epoch in range(num_updates):
+    for epoch in range(start_epoch, num_updates):
+        print('Starting epoch {}'.format(epoch))
         for step in range(num_master_steps_per_update):
             # Sample actions
             with torch.no_grad():
@@ -57,7 +62,7 @@ def main():
 
             for info in infos:
                 if 'episode' in info.keys():
-                    episode_rewards.append(info['episode']['r'])
+                    rewards_train.append(info['episode']['r'])
 
             # If done then clean the history of observations.
             masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
@@ -72,19 +77,20 @@ def main():
         rollouts.after_update()
 
         if epoch % args.save_interval == 0 and logdir != "":
-            log.save_model(logdir, policy, args.cuda, envs)
+            log.save_model(logdir, policy, epoch, args.cuda, envs)
 
         total_num_env_steps = (epoch + 1) * args.num_processes * args.num_frames_per_update
 
-        if epoch % args.log_interval == 0 and len(episode_rewards) > 1:
+        if epoch % args.log_interval == 0 and len(rewards_train) > 1:
             log.log_train(
-                total_num_env_steps, start, episode_rewards, action_loss, value_loss, dist_entropy)
+                total_num_env_steps, start, rewards_train, action_loss, value_loss, dist_entropy)
 
         if (args.eval_interval is not None
-                and len(episode_rewards) > 1
+                and len(rewards_train) > 1
                 and epoch % args.eval_interval == 0):
-            episode_rewards = utils.evaluate(policy, args, logdir, device, envs)
-            log.log_eval(episode_rewards, total_num_env_steps)
+            rewards_eval = utils.evaluate(policy, args, logdir, device, envs, render)
+            log.log_eval(rewards_eval, total_num_env_steps)
+            log.save_model(logdir, policy, epoch, args.cuda, envs, eval=True)
 
 
 if __name__ == "__main__":

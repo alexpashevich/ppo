@@ -67,13 +67,21 @@ class MiMEEnv(object):
         if action == 0:
             print('master action: go to cube and release')
         elif action == 1:
-            print('master action: go down')
+            print('master action: go down and grasp')
         elif action == 2:
-            print('master action: grasp')
-        elif action == 3:
             print('master action: go up')
-        elif action == 4:
+        elif action == 3:
             print('master action: go to bowl and release')
+        # if action == 0:
+        #     print('master action: go to cube and release')
+        # elif action == 1:
+        #     print('master action: go down and release')
+        # elif action == 2:
+        #     print('master action: grasp')
+        # elif action == 3:
+        #     print('master action: go up')
+        # elif action == 4:
+        #     print('master action: go to bowl and release')
 
     def step(self, action):
         reward = 0
@@ -85,14 +93,14 @@ class MiMEEnv(object):
             'linear_velocity': [0, 0, 0],
             'angular_velocity': [0, 0, 0],
             'grip_velocity': 0}
+        if action in (2, 3):
+            # if goes up or to the bowl, the object should not slip away
+            action_dict['grip_velocity'] = -1.0
         action_dict_null = deepcopy(action_dict)
         for i in range(self.timescale):
             action_dict.update(next(action_chain, action_dict_null))
             obs, rew_step, done, info = self.env.step(action_dict)
             reward += rew_step
-            end_of_episode = self.env._elapsed_steps >= self.env._max_episode_steps
-            # i think that this is not necessary, doublecheck later
-            done = done or end_of_episode
             if done:
                 break
         observation = self._obs_dict_to_numpy(obs)
@@ -110,6 +118,9 @@ class MiMEEnv(object):
 
     def render(self, mode):
         self.env.render(mode)
+
+    def close(self):
+        self.env.close()
 
 def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, env_config):
     def _thunk():

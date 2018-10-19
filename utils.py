@@ -3,6 +3,7 @@ import torch.nn as nn
 
 import os
 import glob
+import copy
 
 from envs import VecNormalize, make_vec_envs
 
@@ -54,14 +55,6 @@ def init_normc_(weight, gain=1):
     weight *= gain / torch.sqrt(weight.pow(2).sum(1, keepdim=True))
 
 
-# TODO: remove it
-def print_log(log_str, logfile):
-    # temporal to print logs in stdout and a file
-    print(log_str)
-    logfile.write(log_str + '\n')
-    logfile.flush()
-
-
 def set_up_training(args):
     assert args.algo in ['a2c', 'ppo', 'acktr']
     if args.recurrent_policy:
@@ -70,31 +63,55 @@ def set_up_training(args):
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
-
+    torch.set_num_threads(1)
+    device = torch.device("cuda:0" if args.cuda else "cpu")
     logdir = os.path.join(args.logdir, args.timestamp)
-    try:
-        os.makedirs(logdir)
-    except OSError:
+    eval_logdir = os.path.join(logdir, "_eval")
+    return device, logdir, eval_logdir
+
+def load_model(logdir, eval_logdir):
+    policy, ob_rms, epoch = None, None, None
+    for model_name in ('model.pt', 'model_eval.pt'):
+        try:
+            policy, ob_rms, epoch = torch.load(os.path.join(logdir, model_name))
+            print('loaded a policy from {}'.format(os.path.join(logdir, model_name)))
+            loaded = True
+            break
+        except Exception as e:
+            print('did not load a policy from {}'.format(os.path.join(logdir, model_name)))
+    if not policy:
+        print('not loaded a policy, cleaning the logdir {}'.format(logdir))
         files = glob.glob(os.path.join(logdir, '*.monitor.csv'))
         for f in files:
             os.remove(f)
-    logfile = open(os.path.join(logdir, 'logs.txt'), 'w')
+        try:
+            os.makedirs(eval_logdir)
+        except OSError:
+            files = glob.glob(os.path.join(eval_logdir, '*.monitor.csv'))
+            for f in files:
+                os.remove(f)
+    return policy, ob_rms, epoch
 
-    eval_logdir = os.path.join(logdir, "_eval")
+def try_to_load_policy(args, logdir, eval_logdir):
+    if not os.path.exists(logdir):
+        os.makedirs(logdir)
+    else:
+        policy, ob_rms, epoch = load_model(logdir, eval_logdir)
+    return policy, ob_rms, epoch
 
-    try:
-        os.makedirs(eval_logdir)
-    except OSError:
-        files = glob.glob(os.path.join(eval_logdir, '*.monitor.csv'))
-        for f in files:
-            os.remove(f)
-    return logdir, logfile, eval_logdir
+def close_envs(envs, close_envs_manually):
+    envs.close()
+    if close_envs_manually:
+        for env in envs.venv.venv.envs:
+            env.env.close()
 
-
-def evaluate(policy, args, logdir, device, envs):
+def evaluate(policy, args, logdir, device, envs, render):
+    env_config = copy.deepcopy(args)
+    env_config.render = render
+    num_processes = 1 if render else args.num_processes
     eval_envs = make_vec_envs(
-        args.env_name, args.seed + args.num_processes, args.num_processes,
-        args.gamma, logdir, args.add_timestep, device, True, env_config=args)
+        args.env_name, args.seed + num_processes, num_processes,
+        args.gamma, logdir, args.add_timestep, device, True, env_config=env_config)
 
     vec_norm = get_vec_normalize(eval_envs)
     if vec_norm is not None:
@@ -104,9 +121,10 @@ def evaluate(policy, args, logdir, device, envs):
     eval_episode_rewards = []
     obs = eval_envs.reset()
     eval_recurrent_hidden_states = torch.zeros(
-        args.num_processes, policy.recurrent_hidden_state_size, device=device)
-    eval_masks = torch.zeros(args.num_processes, 1, device=device)
+        num_processes, policy.recurrent_hidden_state_size, device=device)
+    eval_masks = torch.zeros(num_processes, 1, device=device)
 
+    # while len(eval_episode_rewards) < 5:
     while len(eval_episode_rewards) < args.num_eval_episodes:
         with torch.no_grad():
             _, action, _, eval_recurrent_hidden_states = policy.act(
@@ -119,6 +137,5 @@ def evaluate(policy, args, logdir, device, envs):
             if 'episode' in info.keys():
                 eval_episode_rewards.append(info['episode']['r'])
 
-    eval_envs.close()
-
+    close_envs(eval_envs, close_envs_manually=render)
     return eval_episode_rewards

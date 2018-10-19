@@ -3,7 +3,7 @@ from envs import MiMEEnv
 
 
 def main():
-    env_config = {'render': True, 'timescale': 10, 'num_skills': 5}
+    env_config = {'render': True, 'timescale': 25, 'num_skills': 4}
     env = MiMEEnv('UR5-BowlEnv-v0', Namespace(**env_config))
     env.reset()
     import pudb; pudb.set_trace()

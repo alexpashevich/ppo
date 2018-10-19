@@ -104,3 +104,4 @@ trained_models/
 .fuse_hidden*
 logs/*
 runs/*
+0_VRDemoSettings.txt

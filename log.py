@@ -31,7 +31,7 @@ def log_train(total_steps, start, episode_rewards, action_loss, value_loss, entr
     print("Training after {} steps, FPS {}".format(
         total_steps, int(total_steps / (end - start))))
     print("Last {} training episodes: mean reward {:.1f}, min/max reward {:.1f}/{:.1f}\n".format(
-        len(episode_rewards), np.mean(episode_rewards), np.median(episode_rewards),
+        len(episode_rewards), np.mean(episode_rewards),
         np.min(episode_rewards), np.max(episode_rewards)))
     add_summary('reward/mean_reward', np.mean(episode_rewards), total_steps)
     add_summary('reward/max_reward', np.max(episode_rewards), total_steps)
@@ -45,7 +45,7 @@ def log_eval(episode_rewards, total_steps):
     add_summary('reward/mean_reward', np.mean(episode_rewards), total_steps, 'eval')
     add_summary('reward/max_reward', np.max(episode_rewards), total_steps, 'eval')
 
-def save_model(save_path, policy, cuda, envs):
+def save_model(save_path, policy, epoch, cuda, envs, eval=False):
     try:
         os.makedirs(save_path)
     except OSError:
@@ -54,6 +54,7 @@ def save_model(save_path, policy, cuda, envs):
     save_model = policy
     if cuda:
         save_model = copy.deepcopy(policy).cpu()
-    save_model = [save_model, getattr(get_vec_normalize(envs), 'ob_rms', None)]
+    save_model = [save_model, getattr(get_vec_normalize(envs), 'ob_rms', None), epoch]
 
-    torch.save(save_model, os.path.join(save_path, "model.pt"))
+    model_name = 'model_eval.pt' if eval else 'model.pt'
+    torch.save(save_model, os.path.join(save_path, model_name))
