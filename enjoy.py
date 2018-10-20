@@ -20,7 +20,7 @@ parser.add_argument('--add-timestep', action='store_true', default=False,
                     help='add timestep to observations')
 parser.add_argument('--non-det', action='store_true', default=False,
                     help='whether to use a non-deterministic policy')
-parser.add_argument('--timescale', type=int, default=20,
+parser.add_argument('--timescale', type=int, default=25,
                     help='master timescale')
 args = parser.parse_args()
 
@@ -38,7 +38,7 @@ render_func = get_render_func(env)
 
 # We need to use the same statistics for normalization as used in training
 # actor_critic, ob_rms, unused_epoch = torch.load(os.path.join(args.load_dir, "model.pt"))
-actor_critic, ob_rms = torch.load(os.path.join(args.load_dir, "model.pt"))[:2]
+actor_critic, ob_rms = torch.load(os.path.join(args.load_dir, "model_eval.pt"))[:2]
 
 vec_norm = get_vec_normalize(env)
 if vec_norm is not None:

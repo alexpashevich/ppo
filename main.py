@@ -11,11 +11,10 @@ from envs import make_vec_envs
 from model import Policy
 from storage import RolloutStorage
 
-args = get_args()
-
-num_updates = int(args.num_frames) // args.num_frames_per_update // args.num_processes
 
 def main():
+    args = get_args()
+    num_updates = int(args.num_frames) // args.num_frames_per_update // args.num_processes
     device, logdir, eval_logdir = utils.set_up_training(args)
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 

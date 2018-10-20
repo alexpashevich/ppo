@@ -41,18 +41,18 @@ def get_args():
     # not gridsearch
     parser.add_argument('--num-frames-per-update', type=int, default=300,
                         help='number of forward steps in A2C (default: 5)') # changed to 50
-    parser.add_argument('--log-interval', type=int, default=10,
+    parser.add_argument('--log-interval', type=int, default=5,
                         help='log interval, one log per n updates (default: 10)')
-    parser.add_argument('--save-interval', type=int, default=100,
+    parser.add_argument('--save-interval', type=int, default=5,
                         help='save interval, one save per n updates (default: 100)')
-    parser.add_argument('--eval-interval', type=int, default=None,
+    parser.add_argument('--eval-interval', type=int, default=10,
                         help='eval interval, one eval per n updates (default: None)')
     # parser.add_argument('--vis-interval', type=int, default=100,
     #                     help='vis interval, one log per n updates (default: 100)')
     parser.add_argument('--num-frames', type=int, default=30e7,
                         help='number of frames to train (default: 10e6)')
     parser.add_argument('--env-name', default='UR5-BowlEnv-v0',
-                        help='environment to train on (default: PongNoFrameskip-v4)')
+                        help='environment to train on (default: UR5-BowlEnv-v0)')
     parser.add_argument('--logdir', default='./logs/',
                         help='directory to save agent logs (default: ./logs/)')
     parser.add_argument('--timestamp', type=str,
