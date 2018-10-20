@@ -1,10 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import transforms
 
 from distributions import Categorical, DiagGaussian
 from utils import init, init_normc_
 
+from bc.net.architectures import resnet
 
 class Flatten(nn.Module):
     def forward(self, x):
@@ -18,7 +20,8 @@ class Policy(nn.Module):
             base_kwargs = {}
 
         if len(obs_shape) == 3:
-            self.base = CNNBase(obs_shape[0], **base_kwargs)
+            # self.base = CNNBase(obs_shape[0], **base_kwargs)
+            self.base = ResnetBase(obs_shape[0])
         elif len(obs_shape) == 1:
             self.base = MLPBase(obs_shape[0], **base_kwargs)
         else:
@@ -205,5 +208,56 @@ class MLPBase(NNBase):
 
         hidden_critic = self.critic(x)
         hidden_actor = self.actor(x)
+
+        return self.critic_linear(hidden_critic), hidden_actor, rnn_hxs
+
+
+class ResnetBase(NNBase):
+    def __init__(self, num_inputs, num_outputs_resnet=5*(4+1), hidden_size=64):
+        recurrent = False # only feed forward architectures
+        super(ResnetBase, self).__init__(recurrent, hidden_size, hidden_size)
+
+        self.resnet = resnet.resnet18(
+            pretrained=False, input_dim=num_inputs, num_classes=num_outputs_resnet, return_features=True)
+
+        self._transform = transforms.Compose([transforms.ToPILImage(),
+                                              transforms.Resize([224, 224]),
+                                              transforms.ToTensor(),
+                                              transforms.Normalize((0.5, 0.5), (0.5, 0.5)),
+                                              ])
+
+        init_ = lambda m: init(m,
+            nn.init.orthogonal_,
+            lambda x: nn.init.constant_(x, 0))
+
+        self.actor = nn.Sequential(
+            Flatten(),
+            init_(nn.Linear(512, hidden_size)),
+            nn.Tanh(),
+            init_(nn.Linear(hidden_size, hidden_size)),
+            nn.Tanh()
+        )
+
+        self.critic = nn.Sequential(
+            Flatten(),
+            init_(nn.Linear(512, hidden_size)),
+            nn.Tanh(),
+            init_(nn.Linear(hidden_size, hidden_size)),
+            nn.Tanh()
+        )
+
+        init_ = lambda m: init(m,
+            nn.init.orthogonal_,
+            lambda x: nn.init.constant_(x, 0))
+
+        self.critic_linear = init_(nn.Linear(hidden_size, 1))
+
+        self.train()
+
+    def forward(self, inputs, rnn_hxs, masks):
+        # we do not use rnn_hxs but keep it for compatibility
+        unused_skills_actions, features = self.resnet(inputs)
+        hidden_critic = self.critic(features)
+        hidden_actor = self.actor(features)
 
         return self.critic_linear(hidden_critic), hidden_actor, rnn_hxs

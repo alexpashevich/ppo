@@ -14,6 +14,8 @@ from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 from baselines.common.vec_env.vec_normalize import VecNormalize as VecNormalize_
 
+from mime.agent.agent import Agent
+from torchvision import transforms
 
 try:
     import dm_control2gym
@@ -30,37 +32,66 @@ try:
 except ImportError:
     pass
 
-from mime.agent.agent import Agent
+SUPPORTED_MIME_ENVS = 'UR5-BowlEnv-v0', 'UR5-BowlCamEnv-v0'
 
 class MiMEEnv(object):
     def __init__(self, env_name, config, id=0):
+        assert env_name in SUPPORTED_MIME_ENVS
+
+        self.env_name = env_name
         self.env = gym.make(env_name)
         self.num_skills = config.num_skills
         self.timescale = config.timescale
         self._render = config.render and id == 0
+        self.num_frames = 3  # use last 3 depth maps as an observation for BowlCamEnv
+        assert self.timescale => self.num_frames  # the other case is not implemented yet
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
         self.spec = self.env.spec
-        # BowlEnv-v0 specific
-        assert len(self.env.observation_space.spaces) == 7
         # activate rendering
         if self._render:
             scene = self.env.unwrapped.scene
             scene.renders(True)
+        # image transforms
+        self._transform = transforms.Compose([transforms.ToPILImage(),
+                                              transforms.Resize([224, 224]),
+                                              transforms.ToTensor(),
+                                              transforms.Normalize((0.5, 0.5), (0.5, 0.5)),
+                                              ])
 
     @property
     def observation_space(self):
-        return Box(-np.inf, np.inf, (19,), dtype=np.float)
+        if self.env_name == 'UR5-BowlEnv-v0':
+            return Box(-np.inf, np.inf, (19,), dtype=np.float)
+        elif self.env_name == 'UR5-BowlCamEnv-v0':
+            return Box(-np.inf, np.inf, (self.num_frames, 224, 224), dtype=np.float)
 
     @property
     def action_space(self):
         return Discrete(self.num_skills)
 
-    def _obs_dict_to_numpy(self, obs):
-        observation = (obs['tool_position'] + obs['linear_velocity'] + (obs['grip_velocity'],) +
-                       obs['cube_position'] + obs['bowl_position'] +
-                       tuple(obs['distance_to_cube']) + tuple(obs['distance_to_bowl']))
+    def _obs_dict_to_numpy(self, observs):
+        if self.env_name == 'UR5-BowlEnv-v0':
+            if isinstance(observs, dict):
+                obs = observs
+            else:
+                obs = observs[-1]
+            observation = (obs['tool_position'] + obs['linear_velocity'] + (obs['grip_velocity'],) +
+                           obs['cube_position'] + obs['bowl_position'] +
+                           tuple(obs['distance_to_cube']) + tuple(obs['distance_to_bowl']))
+        elif self.env_name == 'UR5-BowlCamEnv-v0':
+            if isinstance(observs, dict):
+                observation = np.tile(observs['depth0'], 3).reshape((240, 320, self.num_frames))
+                # observation: 240 x 320 x 3
+                observation = np.moveaxis(observation, 2, 0)
+                # observation: 3 x 240 x 320
+            else:
+                observation = np.array([obs['depth0'] for obs in observs[-self.num_frames:]])
+                # observation: 3 x 240 x 320
+            # TODO: transformation should be fixed! seems like it produces a tensor of identical values
+            observation = self._transform(observation)
+            # observation: 3 x 240 x 320
         return np.array(observation)
 
     def _print_action(self, action):
@@ -72,19 +103,9 @@ class MiMEEnv(object):
             print('master action: go up')
         elif action == 3:
             print('master action: go to bowl and release')
-        # if action == 0:
-        #     print('master action: go to cube and release')
-        # elif action == 1:
-        #     print('master action: go down and release')
-        # elif action == 2:
-        #     print('master action: grasp')
-        # elif action == 3:
-        #     print('master action: go up')
-        # elif action == 4:
-        #     print('master action: go to bowl and release')
 
     def step(self, action):
-        reward = 0
+        observs, reward = [], 0
         if self._render:
             self._print_action(action)
         action_scripts = self.env.unwrapped.scene.script_subtask(action)
@@ -100,10 +121,11 @@ class MiMEEnv(object):
         for i in range(self.timescale):
             action_dict.update(next(action_chain, action_dict_null))
             obs, rew_step, done, info = self.env.step(action_dict)
+            observs.append(obs)
             reward += rew_step
             if done:
                 break
-        observation = self._obs_dict_to_numpy(obs)
+        observation = self._obs_dict_to_numpy(observs)
         reward /= self.timescale
         return observation, reward, done, info
 
@@ -152,9 +174,7 @@ def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, env_
             env = wrap_deepmind(env)
 
         # If the input has shape (W,H,3), wrap for PyTorch convolutions
-        obs_shape = env.observation_space.shape
-        # TODO: remove the first condition (added for MiME)
-        if obs_shape and len(obs_shape) == 3 and obs_shape[2] in [1, 3]:
+        if len(obs_shape) == 3 and obs_shape[2] in [1, 3]:
             env = TransposeImage(env)
 
         return env
@@ -171,7 +191,6 @@ def make_vec_envs(env_name, seed, num_processes, gamma, log_dir, add_timestep,
     else:
         envs = DummyVecEnv(envs)
 
-    # TODO: MiME is never normalized
     if envs.observation_space.shape and len(envs.observation_space.shape) == 1:
         if gamma is None:
             envs = VecNormalize(envs, ret=False)
@@ -183,8 +202,9 @@ def make_vec_envs(env_name, seed, num_processes, gamma, log_dir, add_timestep,
     if num_frame_stack is not None:
         envs = VecPyTorchFrameStack(envs, num_frame_stack, device)
     elif envs.observation_space.shape and len(envs.observation_space.shape) == 3:
-        # TODO: does not work for MiME
-        envs = VecPyTorchFrameStack(envs, 4, device)
+        if 'UR5' not in env_name:
+            # we will stack the frames manually for MiME
+            envs = VecPyTorchFrameStack(envs, 4, device)
 
     return envs
 
