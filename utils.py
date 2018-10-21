@@ -99,6 +99,11 @@ def try_to_load_policy(args, logdir, eval_logdir):
         policy, ob_rms, epoch = load_model(logdir, eval_logdir)
     return policy, ob_rms, epoch
 
+def load_from_checkpoint(path):
+    # TODO: implement
+    import pudb; pudb.set_trace()
+    pass
+
 def close_envs(envs, close_envs_manually):
     envs.close()
     if close_envs_manually:

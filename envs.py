@@ -44,7 +44,7 @@ class MiMEEnv(object):
         self.timescale = config.timescale
         self._render = config.render and id == 0
         self.num_frames = 3  # use last 3 depth maps as an observation for BowlCamEnv
-        assert self.timescale => self.num_frames  # the other case is not implemented yet
+        assert self.timescale >= self.num_frames  # the other case is not implemented yet
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
@@ -65,7 +65,7 @@ class MiMEEnv(object):
         if self.env_name == 'UR5-BowlEnv-v0':
             return Box(-np.inf, np.inf, (19,), dtype=np.float)
         elif self.env_name == 'UR5-BowlCamEnv-v0':
-            return Box(-np.inf, np.inf, (self.num_frames, 224, 224), dtype=np.float)
+            return Box(-np.inf, np.inf, (self.num_frames, 240, 320), dtype=np.float)
 
     @property
     def action_space(self):
@@ -90,7 +90,7 @@ class MiMEEnv(object):
                 observation = np.array([obs['depth0'] for obs in observs[-self.num_frames:]])
                 # observation: 3 x 240 x 320
             # TODO: transformation should be fixed! seems like it produces a tensor of identical values
-            observation = self._transform(observation)
+            # observation = self._transform(observation)
             # observation: 3 x 240 x 320
         return np.array(observation)
 

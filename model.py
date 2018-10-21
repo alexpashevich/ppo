@@ -255,8 +255,18 @@ class ResnetBase(NNBase):
         self.train()
 
     def forward(self, inputs, rnn_hxs, masks):
+        inputs_reshaped = []
+        for depth_maps_stack in inputs:
+            depth_maps_reshaped_stack = []
+            for depth_map in depth_maps_stack:
+                # 1) transforms.ToPILImage expects 3D tensor, so we use [None]
+                # 2) transforms.ToPILImage expects image between 0. and 1.
+                # 3) we remove the extra dim with [0] afterwards
+                depth_maps_reshaped_stack.append(self._transform(depth_map[None] / 255)[0])
+            inputs_reshaped.append(torch.stack(depth_maps_reshaped_stack))
+        inputs_reshaped = torch.stack(inputs_reshaped)
         # we do not use rnn_hxs but keep it for compatibility
-        unused_skills_actions, features = self.resnet(inputs)
+        unused_skills_actions, features = self.resnet(inputs_reshaped)
         hidden_critic = self.critic(features)
         hidden_actor = self.actor(features)
 

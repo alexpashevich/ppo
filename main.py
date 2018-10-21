@@ -18,8 +18,8 @@ def main():
     device, logdir, eval_logdir = utils.set_up_training(args)
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 
-    render = args.render # save it for the evaluation
-    args.render = False # we do not want to render the training envs
+    render = args.render  # save it for the evaluation
+    args.render = False  # we do not want to render the training envs
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
                          args.gamma, logdir, args.add_timestep, device, False,
                          env_config=args)
@@ -31,15 +31,17 @@ def main():
         policy = Policy(envs.observation_space.shape, envs.action_space,
                         base_kwargs={'recurrent': args.recurrent_policy})
     policy.to(device)
+    if args.checkpoint_path:
+        utils.load_from_checkpoint(args.checkpoint_path)
 
-    agent = algo.PPO(policy, args.clip_param, args.ppo_epoch, args.num_mini_batch,
-                     args.value_loss_coef, args.entropy_coef, lr=args.lr,
-                     eps=args.eps, max_grad_norm=args.max_grad_norm)
+    agent = algo.PPO(
+        policy, args.clip_param, args.ppo_epoch, args.num_mini_batch, args.value_loss_coef,
+        args.entropy_coef, lr=args.lr, eps=args.eps, max_grad_norm=args.max_grad_norm)
 
     num_master_steps_per_update = args.num_frames_per_update // args.timescale
-    rollouts = RolloutStorage(num_master_steps_per_update, args.num_processes,
-                              envs.observation_space.shape, envs.action_space,
-                              policy.recurrent_hidden_state_size)
+    rollouts = RolloutStorage(
+        num_master_steps_per_update, args.num_processes, envs.observation_space.shape,
+        envs.action_space, policy.recurrent_hidden_state_size)
 
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
