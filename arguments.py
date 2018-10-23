@@ -48,9 +48,7 @@ def get_args():
                         help='gae parameter (default: 0.95)')
     # optimizer
     parser.add_argument('--eps', type=float, default=1e-5,
-                        help='RMSprop optimizer epsilon (default: 1e-5)')
-    parser.add_argument('--alpha', type=float, default=0.99,
-                        help='RMSprop optimizer apha (default: 0.99)')
+                        help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
     # hieararchy
     parser.add_argument('--num-skills', type=int, default=4,
                         help='number of skills')

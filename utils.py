@@ -69,17 +69,18 @@ def set_up_training(args):
     eval_logdir = os.path.join(logdir, "_eval")
     return device, logdir, eval_logdir
 
-def load_model(logdir, eval_logdir):
-    policy, ob_rms, epoch = None, None, None
-    for model_name in ('model.pt', 'model_eval.pt'):
+def try_to_load_model(logdir, eval_logdir):
+    policy, optimizer_dict, ob_rms, epoch = None, None, None, None
+    loaded = False
+    for model_name in ('model_current.pt', 'model.pt'):
         try:
-            policy, ob_rms, epoch = torch.load(os.path.join(logdir, model_name))
+            policy, optimizer_dict, ob_rms, epoch = torch.load(os.path.join(logdir, model_name))
             print('loaded a policy from {}'.format(os.path.join(logdir, model_name)))
             loaded = True
             break
         except Exception as e:
             print('did not load a policy from {}'.format(os.path.join(logdir, model_name)))
-    if not policy:
+    if not loaded:
         print('not loaded a policy, cleaning the logdir {}'.format(logdir))
         files = glob.glob(os.path.join(logdir, '*.monitor.csv'))
         for f in files:
@@ -90,19 +91,27 @@ def load_model(logdir, eval_logdir):
             files = glob.glob(os.path.join(eval_logdir, '*.monitor.csv'))
             for f in files:
                 os.remove(f)
-    return policy, ob_rms, epoch
+    return loaded, (policy, optimizer_dict, ob_rms, epoch)
 
-def try_to_load_policy(args, logdir, eval_logdir):
-    if not os.path.exists(logdir):
-        os.makedirs(logdir)
+def load_from_checkpoint(policy, path, cuda):
+    if not cuda:
+        state_dict = torch.load(path, map_location=lambda storage, loc: storage)
     else:
-        policy, ob_rms, epoch = load_model(logdir, eval_logdir)
-    return policy, ob_rms, epoch
+        state_dict = torch.load(path)
+    # BC training produces names of weights with "module." in the beginning
+    state_dict_renamed = {}
+    for key, value in state_dict.items():
+        state_dict_renamed[key.replace('module.', '')] = value
+    policy.base.resnet.load_state_dict(state_dict_renamed)
 
-def load_from_checkpoint(path):
-    # TODO: implement
-    import pudb; pudb.set_trace()
-    pass
+def load_optimizer(optimizer, optimizer_state_dict, cuda):
+    optimizer.load_state_dict(optimizer_state_dict)
+    if not cuda:
+        return
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if isinstance(v, torch.Tensor):
+                state[k] = v.cuda()
 
 def close_envs(envs, close_envs_manually):
     envs.close()

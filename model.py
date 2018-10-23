@@ -213,7 +213,7 @@ class MLPBase(NNBase):
 
 
 class ResnetBase(NNBase):
-    def __init__(self, num_inputs, num_outputs_resnet=5*(4+1), hidden_size=64):
+    def __init__(self, num_inputs, num_outputs_resnet=4*(4+1), hidden_size=64):
         recurrent = False # only feed forward architectures
         super(ResnetBase, self).__init__(recurrent, hidden_size, hidden_size)
 
@@ -262,12 +262,13 @@ class ResnetBase(NNBase):
                 # 1) transforms.ToPILImage expects 3D tensor, so we use [None]
                 # 2) transforms.ToPILImage expects image between 0. and 1.
                 # 3) we remove the extra dim with [0] afterwards
-                depth_maps_reshaped_stack.append(self._transform(depth_map[None] / 255)[0])
+                depth_maps_reshaped_stack.append(self._transform(depth_map.cpu()[None] / 255)[0])
             inputs_reshaped.append(torch.stack(depth_maps_reshaped_stack))
         inputs_reshaped = torch.stack(inputs_reshaped)
+        inputs_reshaped = inputs_reshaped.type_as(inputs)
         # we do not use rnn_hxs but keep it for compatibility
         unused_skills_actions, features = self.resnet(inputs_reshaped)
-        hidden_critic = self.critic(features)
-        hidden_actor = self.actor(features)
+        hidden_critic = self.critic(features.detach())
+        hidden_actor = self.actor(features.detach())
 
         return self.critic_linear(hidden_critic), hidden_actor, rnn_hxs

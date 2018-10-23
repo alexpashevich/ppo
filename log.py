@@ -4,6 +4,7 @@ import copy
 import os
 import time
 import numpy as np
+import glob
 
 from tensorboardX import SummaryWriter
 
@@ -45,16 +46,20 @@ def log_eval(episode_rewards, total_steps):
     add_summary('reward/mean_reward', np.mean(episode_rewards), total_steps, 'eval')
     add_summary('reward/max_reward', np.max(episode_rewards), total_steps, 'eval')
 
-def save_model(save_path, policy, epoch, cuda, envs, eval=False):
-    try:
-        os.makedirs(save_path)
-    except OSError:
-        pass
+def save_model(save_path, policy, optimizer, epoch, cuda, envs, eval=False):
+    if save_path == "":
+        return
     # A really ugly way to save a model to CPU
     save_model = policy
     if cuda:
         save_model = copy.deepcopy(policy).cpu()
-    save_model = [save_model, getattr(get_vec_normalize(envs), 'ob_rms', None), epoch]
+    save_model = [save_model, optimizer.state_dict(),
+                  getattr(get_vec_normalize(envs), 'ob_rms', None), epoch]
 
-    model_name = 'model_eval.pt' if eval else 'model.pt'
-    torch.save(save_model, os.path.join(save_path, model_name))
+    model_name = 'model_eval_{}.pt'.format(epoch) if eval else 'model.pt'
+    model_path = os.path.join(save_path, model_name)
+    torch.save(save_model, model_path)
+    current_model_symlink = os.path.join(save_path, 'model_current.pt')
+    if os.path.exists(current_model_symlink):
+        os.unlink(current_model_symlink)
+    os.symlink(model_path, current_model_symlink)

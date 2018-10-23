@@ -23,20 +23,26 @@ def main():
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
                          args.gamma, logdir, args.add_timestep, device, False,
                          env_config=args)
-    policy, ob_rms, start_epoch = utils.try_to_load_policy(args, logdir, eval_logdir)
-    if policy:
-        utils.get_vec_normalize(envs).ob_rms = ob_rms
+    loaded, (policy, optimizer_dict, ob_rms, start_epoch) = utils.try_to_load_model(logdir, eval_logdir)
+    if loaded:
+        if ob_rms:
+            try:
+                utils.get_vec_normalize(envs).ob_rms = ob_rms
+            except Exception as e:
+                print('WARNING: did not manage to reuse the normalization statistics')
     else:
         start_epoch = 0
         policy = Policy(envs.observation_space.shape, envs.action_space,
                         base_kwargs={'recurrent': args.recurrent_policy})
-    policy.to(device)
     if args.checkpoint_path:
-        utils.load_from_checkpoint(args.checkpoint_path)
+        utils.load_from_checkpoint(policy, args.checkpoint_path, args.cuda)
+    policy.to(device)
 
     agent = algo.PPO(
         policy, args.clip_param, args.ppo_epoch, args.num_mini_batch, args.value_loss_coef,
         args.entropy_coef, lr=args.lr, eps=args.eps, max_grad_norm=args.max_grad_norm)
+    if loaded and optimizer_dict:
+        utils.load_optimizer(agent.optimizer, optimizer_dict, args.cuda)
 
     num_master_steps_per_update = args.num_frames_per_update // args.timescale
     rollouts = RolloutStorage(
@@ -73,12 +79,13 @@ def main():
             next_value = policy.get_value(
                 rollouts.obs[-1], rollouts.recurrent_hidden_states[-1], rollouts.masks[-1]).detach()
 
+        # TODO: maybe add some kind of assert for resnet layers to stay unchanged after the update?
         rollouts.compute_returns(next_value, args.use_gae, args.gamma, args.tau)
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
 
-        if epoch % args.save_interval == 0 and logdir != "":
-            log.save_model(logdir, policy, epoch, args.cuda, envs)
+        if epoch % args.save_interval == 0:
+            log.save_model(logdir, policy, agent.optimizer, epoch, args.cuda, envs)
 
         total_num_env_steps = (epoch + 1) * args.num_processes * args.num_frames_per_update
 
@@ -91,7 +98,8 @@ def main():
                 and epoch % args.eval_interval == 0):
             rewards_eval = utils.evaluate(policy, args, logdir, device, envs, render)
             log.log_eval(rewards_eval, total_num_env_steps)
-            log.save_model(logdir, policy, epoch, args.cuda, envs, eval=True)
+            if epoch % (args.save_interval * args.eval_interval) == 0:
+                log.save_model(logdir, policy, agent.optimizer, epoch, args.cuda, envs, eval=True)
 
 
 if __name__ == "__main__":

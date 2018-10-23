@@ -89,9 +89,6 @@ class MiMEEnv(object):
             else:
                 observation = np.array([obs['depth0'] for obs in observs[-self.num_frames:]])
                 # observation: 3 x 240 x 320
-            # TODO: transformation should be fixed! seems like it produces a tensor of identical values
-            # observation = self._transform(observation)
-            # observation: 3 x 240 x 320
         return np.array(observation)
 
     def _print_action(self, action):
@@ -114,9 +111,6 @@ class MiMEEnv(object):
             'linear_velocity': [0, 0, 0],
             'angular_velocity': [0, 0, 0],
             'grip_velocity': 0}
-        if action in (2, 3):
-            # if goes up or to the bowl, the object should not slip away
-            action_dict['grip_velocity'] = -1.0
         action_dict_null = deepcopy(action_dict)
         for i in range(self.timescale):
             action_dict.update(next(action_chain, action_dict_null))
