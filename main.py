@@ -38,8 +38,7 @@ def main():
             PolicyClass = MasterPolicy
         else:
             PolicyClass = Policy
-        policy = PolicyClass(envs.observation_space.shape, action_space,
-                             base_kwargs=vars(args))
+        policy = PolicyClass(envs.observation_space.shape, action_space, base_kwargs=vars(args))
     if args.checkpoint_path:
         utils.load_from_checkpoint(policy, args.checkpoint_path, args.cuda)
     policy.to(device)
