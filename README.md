@@ -8,9 +8,8 @@ python test_skills.py --env-name UR5-BowlCamEnv-v0 --use-bcrl-setup --render --c
 ```
 By default it will run the environment 100 times (can be changed with `--num-episodes`) and print the success rate. To run the script faster, increase the number of processes with `--num-processes` (1 by deafult) and set `--cuda` to use the GPU. (TODO: fix it, does not work with `num-processes > 1`) If more than 1 process is running, the environment can not be rendered. The sequence of skills by default is `[0, 0, 1, 2, 3]` and you can change with, e.g. `--action-sequence='[3, 2, 1, 0]'` (loaded as a json string).
 
-You can also pass the flag `--pudb` and perform the sequence of actions manually with from a terminal, e.g.`perform_actions([3, 2, 1, 0])`.
+You can also pass the flag `--pudb` and perform the sequence of actions manually with from a terminal, e.g. `perform_actions([3, 2, 1, 0])`.
 
-```
 # (original README is below) pytorch-a2c-ppo-acktr
 
 ## Please use hyper parameters from this readme. With other hyper parameters things might not work (it's RL after all)!
