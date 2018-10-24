@@ -4,6 +4,7 @@ import torch.nn as nn
 import os
 import glob
 import copy
+import numpy as np
 
 from envs import VecNormalize, make_vec_envs
 
@@ -113,6 +114,13 @@ def load_optimizer(optimizer, optimizer_state_dict, cuda):
             if isinstance(v, torch.Tensor):
                 state[k] = v.cuda()
 
+def load_ob_rms(ob_rms, envs):
+    if ob_rms:
+        try:
+            get_vec_normalize(envs).ob_rms = ob_rms
+        except:
+            print('WARNING: did not manage to reuse the normalization statistics')
+
 def close_envs(envs, close_envs_manually):
     envs.close()
     if close_envs_manually:
@@ -138,14 +146,19 @@ def evaluate(policy, args, logdir, device, envs, render):
         num_processes, policy.recurrent_hidden_state_size, device=device)
     eval_masks = torch.zeros(num_processes, 1, device=device)
 
-    # while len(eval_episode_rewards) < 5:
     while len(eval_episode_rewards) < args.num_eval_episodes:
         with torch.no_grad():
             _, action, _, eval_recurrent_hidden_states = policy.act(
                 obs, eval_recurrent_hidden_states, eval_masks, deterministic=True)
 
         # Observe reward and next obs
-        obs, reward, done, infos = eval_envs.step(action)
+        # obs, reward, done, infos = eval_envs.step(action)
+        if not args.use_bcrl_setup:
+            obs, reward, done, infos = eval_envs.step(action)
+        else:
+            print('master action = {}'.format(action.cpu().numpy()))
+            obs, reward, done, infos = do_master_step(
+                action, obs, args.timescale, policy, eval_envs)
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
         for info in infos:
             if 'episode' in info.keys():
@@ -153,3 +166,20 @@ def evaluate(policy, args, logdir, device, envs, render):
 
     close_envs(eval_envs, close_envs_manually=render)
     return eval_episode_rewards
+
+
+def do_master_step(master_action, master_obs, master_timescale, policy, envs):
+    master_reward = 0
+    worker_obs = master_obs
+    master_done = np.array([False] * master_action.shape[0])
+    for _ in range(master_timescale):
+        with torch.no_grad():
+            worker_action = policy.get_worker_action(master_action, worker_obs)
+        worker_obs, reward, done, infos = envs.step(worker_action)
+        master_reward += reward
+        master_done = np.logical_or(master_done, done)
+        if done.any() and not done.all():
+            print('WARNING: one or several envs are done but not all during the macro step!')
+        if master_done.all():
+            break
+    return worker_obs, master_reward / master_timescale, master_done, infos

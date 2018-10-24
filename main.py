@@ -1,6 +1,7 @@
 import os
 import time
 from collections import deque
+from gym.spaces import Discrete
 
 import torch
 
@@ -8,7 +9,7 @@ import torch
 import algo, utils, log
 from arguments import get_args
 from envs import make_vec_envs
-from model import Policy
+from model import Policy, MasterPolicy
 from storage import RolloutStorage
 
 
@@ -24,16 +25,21 @@ def main():
                          args.gamma, logdir, args.add_timestep, device, False,
                          env_config=args)
     loaded, (policy, optimizer_dict, ob_rms, start_epoch) = utils.try_to_load_model(logdir, eval_logdir)
+    # TODO: refactor this later
+    if args.use_bcrl_setup:
+        action_space = Discrete(args.num_skills)
+    else:
+        action_space = envs.action_space
     if loaded:
-        if ob_rms:
-            try:
-                utils.get_vec_normalize(envs).ob_rms = ob_rms
-            except Exception as e:
-                print('WARNING: did not manage to reuse the normalization statistics')
+        utils.load_ob_rms(ob_rms, envs)
     else:
         start_epoch = 0
-        policy = Policy(envs.observation_space.shape, envs.action_space,
-                        base_kwargs={'recurrent': args.recurrent_policy})
+        if args.use_bcrl_setup:
+            PolicyClass = MasterPolicy
+        else:
+            PolicyClass = Policy
+        policy = PolicyClass(envs.observation_space.shape, action_space,
+                             base_kwargs=vars(args))
     if args.checkpoint_path:
         utils.load_from_checkpoint(policy, args.checkpoint_path, args.cuda)
     policy.to(device)
@@ -47,7 +53,7 @@ def main():
     num_master_steps_per_update = args.num_frames_per_update // args.timescale
     rollouts = RolloutStorage(
         num_master_steps_per_update, args.num_processes, envs.observation_space.shape,
-        envs.action_space, policy.recurrent_hidden_state_size)
+        action_space, policy.recurrent_hidden_state_size)
 
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
@@ -65,7 +71,12 @@ def main():
                     rollouts.obs[step], rollouts.recurrent_hidden_states[step], rollouts.masks[step])
 
             # Observe reward and next obs
-            obs, reward, done, infos = envs.step(action)
+            if not args.use_bcrl_setup:
+                obs, reward, done, infos = envs.step(action)
+            else:
+                print('master action = {}'.format(action.cpu().numpy()))
+                obs, reward, done, infos = utils.do_master_step(
+                    action, rollouts.obs[step], args.timescale, policy, envs)
 
             for info in infos:
                 if 'episode' in info.keys():

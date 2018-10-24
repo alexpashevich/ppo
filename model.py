@@ -12,7 +12,6 @@ class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
 
-
 class Policy(nn.Module):
     def __init__(self, obs_shape, action_space, base_kwargs=None):
         super(Policy, self).__init__()
@@ -21,7 +20,7 @@ class Policy(nn.Module):
 
         if len(obs_shape) == 3:
             # self.base = CNNBase(obs_shape[0], **base_kwargs)
-            self.base = ResnetBase(obs_shape[0])
+            self.base = ResnetBase(obs_shape[0], **base_kwargs)
         elif len(obs_shape) == 1:
             self.base = MLPBase(obs_shape[0], **base_kwargs)
         else:
@@ -74,6 +73,15 @@ class Policy(nn.Module):
         dist_entropy = dist.entropy().mean()
 
         return value, action_log_probs, dist_entropy, rnn_hxs
+
+
+class MasterPolicy(Policy):
+    def __init__(self, obs_shape, action_space, base_kwargs=None):
+        super(MasterPolicy, self).__init__(obs_shape, action_space, base_kwargs)
+
+    def get_worker_action(self, master_action, observation):
+        worker_action = self.base(observation, None, None, master_action=master_action)
+        return worker_action
 
 
 class NNBase(nn.Module):
@@ -134,7 +142,7 @@ class NNBase(nn.Module):
 
 
 class CNNBase(NNBase):
-    def __init__(self, num_inputs, recurrent=False, hidden_size=512):
+    def __init__(self, num_inputs, recurrent=False, hidden_size=512, **kwargs):
         super(CNNBase, self).__init__(recurrent, hidden_size, hidden_size)
 
         init_ = lambda m: init(m,
@@ -172,10 +180,10 @@ class CNNBase(NNBase):
 
 
 class MLPBase(NNBase):
-    def __init__(self, num_inputs, recurrent=False, hidden_size=64):
-        super(MLPBase, self).__init__(recurrent, num_inputs, hidden_size)
+    def __init__(self, num_inputs, recurrent_policy=False, hidden_size=64, **kwargs):
+        super(MLPBase, self).__init__(recurrent_policy, num_inputs, hidden_size)
 
-        if recurrent:
+        if recurrent_policy:
             num_inputs = hidden_size
 
         init_ = lambda m: init(m,
@@ -213,10 +221,21 @@ class MLPBase(NNBase):
 
 
 class ResnetBase(NNBase):
-    def __init__(self, num_inputs, num_outputs_resnet=4*(4+1), hidden_size=64):
-        recurrent = False # only feed forward architectures
-        super(ResnetBase, self).__init__(recurrent, hidden_size, hidden_size)
+    def __init__(
+            self,
+            num_inputs,
+            num_skills=4,
+            dim_skill_action=4,
+            num_skill_action_pred=1,
+            recurrent_policy=False,  # do not supported
+            hidden_size=64,
+            **kwargs):
+        super(ResnetBase, self).__init__(recurrent_policy, hidden_size, hidden_size)
 
+        self.num_skills = num_skills
+        self.dim_skill_action = dim_skill_action
+        self.num_skill_action_pred = num_skill_action_pred
+        num_outputs_resnet = self.num_skills * dim_skill_action * num_skill_action_pred
         self.resnet = resnet.resnet18(
             pretrained=False, input_dim=num_inputs, num_classes=num_outputs_resnet, return_features=True)
 
@@ -254,7 +273,8 @@ class ResnetBase(NNBase):
 
         self.train()
 
-    def forward(self, inputs, rnn_hxs, masks):
+    def forward(self, inputs, unused_rnn_hxs, unused_masks, master_action=None):
+        # we do not use rnn_hxs but keep it for compatibility
         inputs_reshaped = []
         for depth_maps_stack in inputs:
             depth_maps_reshaped_stack = []
@@ -266,9 +286,29 @@ class ResnetBase(NNBase):
             inputs_reshaped.append(torch.stack(depth_maps_reshaped_stack))
         inputs_reshaped = torch.stack(inputs_reshaped)
         inputs_reshaped = inputs_reshaped.type_as(inputs)
-        # we do not use rnn_hxs but keep it for compatibility
-        unused_skills_actions, features = self.resnet(inputs_reshaped)
-        hidden_critic = self.critic(features.detach())
-        hidden_actor = self.actor(features.detach())
+        all_skills_actions, features = self.resnet(inputs_reshaped)
+        if master_action is None:
+            # this is the policy step itself
+            hidden_critic = self.critic(features.detach())
+            hidden_actor = self.actor(features.detach())
+            return self.critic_linear(hidden_critic), hidden_actor, unused_rnn_hxs
+        else:
+            # all_skills_actions: num_processes x (num_skills x dim_skill_action x num_skill_action_pred)
+            # master_action: num_processes x 1
+            skills_actions = []
+            for env_id, skill_id in enumerate(master_action):
+                # for the process I to access the skill J action we need the slice
+                # proc_I_skill_J action beginning is at:
+                # all_skills_actions[I, J x dim_skill_action x num_skill_action_pred]
+                skill_action_begin = skill_id * self.dim_skill_action * self.num_skill_action_pred
+                # proc_I_skill_J action end is at:
+                # all_skills_actions[I, J x dim_skill_action x num_skill_action_pred + dim_skill_action]
+                skill_action_end = skill_action_begin + self.dim_skill_action
+                # so the proc_I_skill_J action is at
+                # all_skills_actions[I, J x dim_skill_action x num_skill_action_pred:
+                #                       J x dim_skill_action x num_skill_action_pred + dim_skill_action]
+                skill_action = all_skills_actions[env_id, skill_action_begin:skill_action_end]
+                skills_actions.append(skill_action)
+            skills_actions = torch.stack(skills_actions)
+            return skills_actions
 
-        return self.critic_linear(hidden_critic), hidden_actor, rnn_hxs

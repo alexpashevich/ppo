@@ -1,14 +1,7 @@
 import numpy as np
-import gym
-import itertools
-
-from copy import deepcopy
 from argparse import Namespace
-from gym.spaces import Box, Discrete
 
-# from mime.agent.agent import Agent
-
-from envs import MiMEEnv
+from mime_env import MiMEEnv
 
 
 def main():

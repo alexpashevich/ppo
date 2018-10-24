@@ -50,10 +50,17 @@ def get_args():
     parser.add_argument('--eps', type=float, default=1e-5,
                         help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
     # hieararchy
-    parser.add_argument('--num-skills', type=int, default=4,
-                        help='number of skills')
+    parser.add_argument('--use-bcrl-setup', action='store_true', default=False,
+                        help='use the setup with pretrained with BC skills')
     parser.add_argument('--timescale', type=int, default=25,
                         help='master timescale')
+    parser.add_argument('--num-skills', type=int, default=4,
+                        help='number of skills')
+    # BC skills settings (should match the BC checkpoint)
+    parser.add_argument('--dim-skill-action', type=int, default=5,
+                        help='dimensionality of a skill action')
+    parser.add_argument('--num-skill-action-pred', type=int, default=1,
+                        help='dimensionality of a skill action')
     # evaluation
     parser.add_argument('--num-eval-episodes', type=int, default=32,
                         help='numer of episodes to use in evluation')
