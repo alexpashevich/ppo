@@ -16,11 +16,13 @@ def get_args():
                         help='whether to stop at the breakpoint for manual actions switching')
     parser.add_argument('--cuda', action='store_true', default=False,
                         help='whether to run the policy on cuda')
+    parser.add_argument('--input-type', type=str, default='rgbd',
+                        help='type of input for the conv nets')
     parser.add_argument('--no-report-failures', action='store_true', default=False,
                         help='whether to report when the environment is not done')
-    parser.add_argument('--env-name', default='UR5-BowlEnv-v0',
+    parser.add_argument('--env-name', default='UR5-BowlCamEnv-v0',
                         help='environment to train on (default: UR5-BowlEnv-v0)')
-    parser.add_argument('--timescale', type=int, default=25,
+    parser.add_argument('--timescale', type=int, default=40,
                         help='master timescale')
     parser.add_argument('--num-skills', type=int, default=4,
                         help='number of skills')
@@ -32,11 +34,11 @@ def get_args():
     parser.add_argument('--num-processes', type=int, default=1,
                         help='number of processes to run')
     # BCRL hieararchy
-    parser.add_argument('--use-bcrl-setup', action='store_true', default=False,
+    parser.add_argument('--use-bcrl-setup', action='store_true', default=True,
                         help='test the pretrained skills')
     parser.add_argument('--dim-skill-action', type=int, default=5,
                         help='dimensionality of a skill action')
-    parser.add_argument('--num-skill-action-pred', type=int, default=1,
+    parser.add_argument('--num-skill-action-pred', type=int, default=4,
                         help='dimensionality of a skill action')
     parser.add_argument('--checkpoint-path', type=str, default=None,
                         help='if specified, load the networks weights from the file')
@@ -75,7 +77,7 @@ def main():
         print('Using BCRL setup, loading the skills from {}'.format(args.checkpoint_path))
         action_space = Discrete(args.num_skills)
         policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
-        load_from_checkpoint(policy, args.checkpoint_path, args.cuda)
+        load_from_checkpoint(policy, args.checkpoint_path, device)
         policy.to(device)
 
     episodes_success = []

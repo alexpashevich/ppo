@@ -46,15 +46,18 @@ def log_eval(episode_rewards, total_steps):
     add_summary('reward/mean_reward', np.mean(episode_rewards), total_steps, 'eval')
     add_summary('reward/max_reward', np.max(episode_rewards), total_steps, 'eval')
 
-def save_model(save_path, policy, optimizer, epoch, cuda, envs, eval=False):
+def save_model(save_path, policy, optimizer, epoch, device, envs, config, eval=False):
     if save_path == "":
         return
     # A really ugly way to save a model to CPU
     save_model = policy
-    if cuda:
+    if device.type != 'cpu':
         save_model = copy.deepcopy(policy).cpu()
-    save_model = [save_model, optimizer.state_dict(),
-                  getattr(get_vec_normalize(envs), 'ob_rms', None), epoch]
+    save_model = tuple([
+        save_model,
+        optimizer.state_dict(),
+        getattr(get_vec_normalize(envs), 'ob_rms', None),
+        epoch, config])
 
     model_name = 'model_eval_{}.pt'.format(epoch) if eval else 'model.pt'
     model_path = os.path.join(save_path, model_name)

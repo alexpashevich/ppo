@@ -12,43 +12,57 @@ from envs import make_vec_envs
 from model import Policy, MasterPolicy
 from storage import RolloutStorage
 
-
-def main():
-    args = get_args()
-    num_updates = int(args.num_frames) // args.num_frames_per_update // args.num_processes
-    device, logdir, eval_logdir = utils.set_up_training(args)
-    log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
-
-    render = args.render  # save it for the evaluation
-    args.render = False  # we do not want to render the training envs
+def create_envs(args, device):
+    args.render = args.render_train
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, logdir, args.add_timestep, device, False,
+                         args.gamma, None, args.add_timestep, device, False,
                          env_config=args)
-    loaded, (policy, optimizer_dict, ob_rms, start_epoch) = utils.try_to_load_model(logdir, eval_logdir)
-    # TODO: refactor this later
-    if args.use_bcrl_setup:
-        action_space = Discrete(args.num_skills)
-    else:
-        action_space = envs.action_space
-    if loaded:
-        utils.load_ob_rms(ob_rms, envs)
-    else:
-        start_epoch = 0
-        if args.use_bcrl_setup:
-            PolicyClass = MasterPolicy
-        else:
-            PolicyClass = Policy
-        policy = PolicyClass(envs.observation_space.shape, action_space, base_kwargs=vars(args))
-    if args.checkpoint_path:
-        utils.load_from_checkpoint(policy, args.checkpoint_path, args.cuda)
-    policy.to(device)
+    return envs
 
+def create_policy(args, envs, device, action_space):
+    PolicyClass = MasterPolicy if args.use_bcrl_setup else Policy
+    policy = PolicyClass(envs.observation_space.shape, action_space, base_kwargs=vars(args))
+    if args.checkpoint_path:
+        utils.load_from_checkpoint(policy, args.checkpoint_path, device)
+    return policy
+
+def create_agent(args, policy):
     agent = algo.PPO(
         policy, args.clip_param, args.ppo_epoch, args.num_mini_batch, args.value_loss_coef,
         args.entropy_coef, lr=args.lr, eps=args.eps, max_grad_norm=args.max_grad_norm)
-    if loaded and optimizer_dict:
-        utils.load_optimizer(agent.optimizer, optimizer_dict, args.cuda)
+    return agent
 
+def main():
+    args = get_args()
+    logdir = os.path.join(args.logdir, args.timestamp)
+    # get the device before loading to enable the GPU/CPU transfer
+    device = torch.device("cuda:0" if args.cuda else "cpu")
+    print('Running the experiments on {}'.format(device))
+    # try to load from a checkpoint
+    loaded, loaded_tuple = utils.try_to_load_model(logdir)
+    if loaded:
+        policy, optimizer_state_dict, ob_rms, start_epoch, args = loaded_tuple
+    utils.set_up_training(args)
+    log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
+
+    # create the parallel envs
+    envs = create_envs(args, device)
+    # create the policy
+    # TODO: refactor this later
+    action_space = Discrete(args.num_skills) if args.use_bcrl_setup else envs.action_space
+    if not loaded:
+        policy = create_policy(args, envs, device, action_space)
+        start_epoch = 0
+    policy.to(device)
+    # create the PPO algo
+    agent = create_agent(args, policy)
+
+    if loaded:
+        # load normalization and optimizer statistics
+        utils.load_ob_rms(ob_rms, envs)
+        utils.load_optimizer(agent.optimizer, optimizer_state_dict, device)
+
+    num_updates = int(args.num_frames) // args.num_frames_per_update // args.num_processes
     num_master_steps_per_update = args.num_frames_per_update // args.timescale
     rollouts = RolloutStorage(
         num_master_steps_per_update, args.num_processes, envs.observation_space.shape,
@@ -95,7 +109,7 @@ def main():
         rollouts.after_update()
 
         if epoch % args.save_interval == 0:
-            log.save_model(logdir, policy, agent.optimizer, epoch, args.cuda, envs)
+            log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args)
 
         total_num_env_steps = (epoch + 1) * args.num_processes * args.num_frames_per_update
 
@@ -106,10 +120,10 @@ def main():
         if (args.eval_interval is not None
                 and len(rewards_train) > 1
                 and epoch % args.eval_interval == 0):
-            rewards_eval = utils.evaluate(policy, args, logdir, device, envs, render)
+            rewards_eval = utils.evaluate(policy, args, logdir, device, envs, args.render_eval)
             log.log_eval(rewards_eval, total_num_env_steps)
             if epoch % (args.save_interval * args.eval_interval) == 0:
-                log.save_model(logdir, policy, agent.optimizer, epoch, args.cuda, envs, eval=True)
+                log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
 
 
 if __name__ == "__main__":

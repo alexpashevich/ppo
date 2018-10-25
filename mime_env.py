@@ -20,6 +20,7 @@ class MiMEEnv(object):
         self.timescale = vars(config).get('timescale', 25)
         self._render = vars(config).get('render', False) and id == 0
         self.num_frames = 3  # use last 3 depth maps as an observation for BowlCamEnv
+        self.observation_type = vars(config).get('input_type', 'depth')
         self.last_observations = deque(maxlen=self.num_frames)
         # # TODO: implement the deque for non use_bcrl_setup
         # assert self.timescale >= self.num_frames  # the other case is not implemented yet
@@ -40,7 +41,13 @@ class MiMEEnv(object):
         if self.env_name == 'UR5-BowlEnv-v0':
             return Box(-np.inf, np.inf, (19,), dtype=np.float)
         elif self.env_name == 'UR5-BowlCamEnv-v0':
-            return Box(-np.inf, np.inf, (self.num_frames, 240, 320), dtype=np.float)
+            if self.observation_type == 'depth':
+                observation_dim = self.num_frames * 1
+            elif self.observation_type == 'rgbd':
+                observation_dim = self.num_frames * 4
+            else:
+                raise NotImplementedError
+            return Box(-np.inf, np.inf, (observation_dim, 240, 320), dtype=np.float)
 
     @property
     def action_space(self):
@@ -48,6 +55,18 @@ class MiMEEnv(object):
             return Discrete(self.num_skills)
         else:
             return Box(-np.inf, np.inf, (self.dim_skill_action,), dtype=np.float)
+
+    def _extract_obs(self, obs_dict):
+        if self.observation_type == 'depth':
+            obs = obs_dict['depth0'][None]
+        elif self.observation_type == 'rgbd':
+            depth = obs_dict['depth0'][..., None]
+            rgb = obs_dict['rgb0']
+            rgbd = np.concatenate((depth, rgb), axis=2)
+            obs = np.rollaxis(rgbd, axis=2)
+        else:
+            raise NotImplementedError
+        return obs
 
     def _obs_dict_to_numpy(self, observs):
         if self.env_name == 'UR5-BowlEnv-v0':
@@ -62,6 +81,7 @@ class MiMEEnv(object):
                            tuple(obs['distance_to_cube']) + tuple(obs['distance_to_bowl']))
             observation = np.array(observation)
         elif self.env_name == 'UR5-BowlCamEnv-v0':
+            # TODO: refactor this to use a single function
             if not self.use_bcrl_setup:
                 if isinstance(observs, dict):
                     observation = np.tile(observs['depth0'], 3).reshape((240, 320, self.num_frames))
@@ -72,13 +92,16 @@ class MiMEEnv(object):
                     observation = np.array([obs['depth0'] for obs in observs[-self.num_frames:]])
                     # observation: 3 x 240 x 320
             else:
-                obs = observs['depth0']  # observs is always a dictionary with the last observation
+                # observs is always a dictionary with the last observation
+                obs = self._extract_obs(observs)
                 # append: up to 4 times if empty, we don't care and 1 time otherwise
                 num_appends = 1 + self.num_frames - len(self.last_observations)
                 for _ in range(num_appends):
                     self.last_observations.append(obs)
                 observation = np.array(self.last_observations)
-                # observation: 3 x 240 x 320
+                # observation: 3 x (1 or 4) x 240 x 320
+                observation = observation.reshape((-1, observation.shape[2], observation.shape[3]))
+                # observation: (3 or 12) x 240 x 320
         return observation
 
     def _get_action_dict(self, action):

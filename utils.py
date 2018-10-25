@@ -58,44 +58,35 @@ def init_normc_(weight, gain=1):
 
 def set_up_training(args):
     assert args.algo in ['a2c', 'ppo', 'acktr']
-    if args.recurrent_policy:
-        assert args.algo in ['a2c', 'ppo'], \
-            'Recurrent policy is not implemented for ACKTR'
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
     torch.set_num_threads(1)
-    device = torch.device("cuda:0" if args.cuda else "cpu")
-    logdir = os.path.join(args.logdir, args.timestamp)
-    eval_logdir = os.path.join(logdir, "_eval")
-    return device, logdir, eval_logdir
 
-def try_to_load_model(logdir, eval_logdir):
-    policy, optimizer_dict, ob_rms, epoch = None, None, None, None
-    loaded = False
+def try_to_load_model(logdir):
+    loaded, loaded_tuple = False, None
     for model_name in ('model_current.pt', 'model.pt'):
         try:
-            policy, optimizer_dict, ob_rms, epoch = torch.load(os.path.join(logdir, model_name))
+            loaded_tuple = torch.load(os.path.join(logdir, model_name))
             print('loaded a policy from {}'.format(os.path.join(logdir, model_name)))
             loaded = True
             break
         except Exception as e:
             print('did not load a policy from {}'.format(os.path.join(logdir, model_name)))
     if not loaded:
-        print('not loaded a policy, cleaning the logdir {}'.format(logdir))
         files = glob.glob(os.path.join(logdir, '*.monitor.csv'))
         for f in files:
             os.remove(f)
         try:
-            os.makedirs(eval_logdir)
+            os.makedirs(os.path.join(logdir, '_eval'))
         except OSError:
-            files = glob.glob(os.path.join(eval_logdir, '*.monitor.csv'))
+            files = glob.glob(os.path.join(logdir, '_eval', '*.monitor.csv'))
             for f in files:
                 os.remove(f)
-    return loaded, (policy, optimizer_dict, ob_rms, epoch)
+    return loaded, loaded_tuple
 
-def load_from_checkpoint(policy, path, cuda):
-    if not cuda:
+def load_from_checkpoint(policy, path, device):
+    if device.type == 'cpu':
         state_dict = torch.load(path, map_location=lambda storage, loc: storage)
     else:
         state_dict = torch.load(path)
@@ -105,14 +96,13 @@ def load_from_checkpoint(policy, path, cuda):
         state_dict_renamed[key.replace('module.', '')] = value
     policy.base.resnet.load_state_dict(state_dict_renamed)
 
-def load_optimizer(optimizer, optimizer_state_dict, cuda):
+def load_optimizer(optimizer, optimizer_state_dict, device):
     optimizer.load_state_dict(optimizer_state_dict)
-    if not cuda:
-        return
+    target_device = 'cpu' if device.type == 'cpu' else 'cuda'
     for state in optimizer.state.values():
         for k, v in state.items():
             if isinstance(v, torch.Tensor):
-                state[k] = v.cuda()
+                state[k] = getattr(v, target_device)()
 
 def load_ob_rms(ob_rms, envs):
     if ob_rms:
@@ -168,7 +158,7 @@ def evaluate(policy, args, logdir, device, envs, render):
     return eval_episode_rewards
 
 
-def do_master_step(master_action, master_obs, master_timescale, policy, envs):
+def do_master_step(master_action, master_obs, master_timescale, policy, envs, save_frames_dir=None):
     master_reward = 0
     worker_obs = master_obs
     master_done = np.array([False] * master_action.shape[0])
