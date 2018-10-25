@@ -1,5 +1,17 @@
 # (Alex) pytorch ppo adapted for MiME environments
 
+## How to run the RL training
+
+To train you need to run:
+```python
+python main.py --num-mini-batch 4 --num-processes 8 --num-frames-per-update 500 --timescale 40 --entropy-coef 0.05 --value-loss-coef 1 --cuda --use-bcrl-setup --logdir {} --checkpoint-path {}
+```
+
+Use can render the result with the `enjoy.py` script:
+```python
+python enjoy.py --load-dir {}
+```
+
 ## How to visualize the skills trained with BC
 
 First, make sure that the MiME repo is in your `$PYTHONPATH`. Then run

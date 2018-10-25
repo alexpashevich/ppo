@@ -7,8 +7,8 @@ def get_args():
     # general
     parser.add_argument('--algo', default='ppo',
                         help='algorithm to use: a2c | ppo | acktr')
-    parser.add_argument('--env-name', default='UR5-BowlEnv-v0',
-                        help='environment to train on (default: UR5-BowlEnv-v0)')
+    parser.add_argument('--env-name', default='UR5-BowlCamEnv-v0',
+                        help='environment to train on (default: UR5-BowlCamEnv-v0)')
     parser.add_argument('--seed', type=int, default=1,
                         help='random seed (default: 1)')
     parser.add_argument('--render-train', action='store_true', default=False,
@@ -64,10 +64,10 @@ def get_args():
     parser.add_argument('--dim-skill-action', type=int, default=5,
                         help='dimensionality of a skill action')
     parser.add_argument('--num-skill-action-pred', type=int, default=1,
-                        help='dimensionality of a skill action')
+                        help='number of future actions predicted')
     # evaluation
     parser.add_argument('--num-eval-episodes', type=int, default=32,
-                        help='numer of episodes to use in evluation')
+                        help='number of episodes to use in evluation')
     parser.add_argument('--eval-interval', type=int, default=10,
                         help='eval interval, one eval per n updates (default: None)')
     # logging
