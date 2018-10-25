@@ -5,7 +5,7 @@ import torch
 from gym.spaces import Discrete
 
 from model import MasterPolicy
-from utils import load_from_checkpoint, do_master_step
+from utils import load_from_checkpoint, do_master_step, set_up_training
 from envs import make_vec_envs
 
 def get_args():
@@ -18,6 +18,8 @@ def get_args():
                         help='whether to run the policy on cuda')
     parser.add_argument('--input-type', type=str, default='rgbd',
                         help='type of input for the conv nets')
+    parser.add_argument('--seed', type=int, default=1,
+                        help='seed to use')
     parser.add_argument('--no-report-failures', action='store_true', default=False,
                         help='whether to report when the environment is not done')
     parser.add_argument('--env-name', default='UR5-BowlCamEnv-v0',
@@ -59,11 +61,13 @@ def _perform_actions(action_sequence, envs, policy, obs, args):
         reward_sum += reward[:, 0].numpy()
     return reward_sum, done, info
 
+
 def main():
     args = get_args()
     device = torch.device("cuda:0" if args.cuda else "cpu")
+    set_up_training(args)
     envs = make_vec_envs(
-        args.env_name, 1, args.num_processes, 0.99, None, False, device, True, env_config=args)
+        args.env_name, args.seed, args.num_processes, 0.99, None, False, device, True, env_config=args)
     obs = envs.reset()
     policy = None
     if args.num_episodes % args.num_processes != 0:

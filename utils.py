@@ -57,7 +57,6 @@ def init_normc_(weight, gain=1):
 
 
 def set_up_training(args):
-    assert args.algo in ['a2c', 'ppo', 'acktr']
     torch.manual_seed(args.seed)
     if args.cuda:
         torch.cuda.manual_seed(args.seed)
