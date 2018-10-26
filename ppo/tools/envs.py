@@ -10,7 +10,7 @@ from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
 from baselines.common.vec_env.vec_normalize import VecNormalize as VecNormalize_
 
-from mime_env import MiMEEnv
+from ppo.parts.mime_env import MiMEEnv
 
 def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, env_config):
     def _thunk():

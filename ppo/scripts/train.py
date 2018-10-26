@@ -5,18 +5,19 @@ from gym.spaces import Discrete
 
 import torch
 
-# local imports
-import algo, utils, log
-from arguments import get_args
-from envs import make_vec_envs
-from model import Policy, MasterPolicy
-from storage import RolloutStorage
+import ppo.algo as algo
+import ppo.tools.utils as utils
+import ppo.tools.log as log
+from ppo.scripts.arguments import get_args
+from ppo.tools.envs import make_vec_envs
+from ppo.parts.model import Policy, MasterPolicy
+from ppo.parts.storage import RolloutStorage
 
 def create_envs(args, device):
     args.render = args.render_train
-    envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, None, args.add_timestep, device, False,
-                         env_config=args)
+    envs = make_vec_envs(
+        args.env_name, args.seed, args.num_processes, args.gamma,
+        None, args.add_timestep, device, False, env_config=args)
     return envs
 
 def create_policy(args, envs, device, action_space):
@@ -117,9 +118,7 @@ def main():
             log.log_train(
                 total_num_env_steps, start, rewards_train, action_loss, value_loss, dist_entropy)
 
-        if (args.eval_interval is not None
-                and len(rewards_train) > 1
-                and epoch % args.eval_interval == 0):
+        if (args.eval_interval and len(rewards_train) > 1 and epoch % args.eval_interval == 0):
             rewards_eval = utils.evaluate(policy, args, logdir, device, envs, args.render_eval)
             # TODO: put the network in the eval mode
             # .eval and .train

@@ -8,7 +8,7 @@ import glob
 
 from tensorboardX import SummaryWriter
 
-from utils import get_vec_normalize
+from ppo.tools.utils import get_vec_normalize
 
 train_writer, eval_writer = None, None
 

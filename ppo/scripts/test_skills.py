@@ -4,9 +4,9 @@ import argparse
 import torch
 from gym.spaces import Discrete
 
-from model import MasterPolicy
-from utils import load_from_checkpoint, do_master_step, set_up_training, get_device
-from envs import make_vec_envs
+from ppo.parts.model import MasterPolicy
+from ppo.tools.utils import load_from_checkpoint, do_master_step, set_up_training, get_device
+from ppo.tools.envs import make_vec_envs
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -51,7 +51,6 @@ def _perform_actions(action_sequence, envs, policy, obs, args):
     reward_sum = np.array([0] * args.num_processes, dtype=np.float)
     for action in action_sequence:
         print('master action = {}'.format(action))
-        # action = np.array([action])
         action = np.array([action for _ in range(args.num_processes)])
         if not args.use_bcrl_setup:
             action = torch.tensor(action)[None]
@@ -84,6 +83,9 @@ def main():
         policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
         load_from_checkpoint(policy, args.checkpoint_path, device)
         policy.to(device)
+    if hasattr(policy.base, 'resnet'):
+        # set the batch norm to the eval mode
+        policy.base.resnet.eval()
 
     episodes_success = []
     perform_actions = lambda seq: _perform_actions(seq, envs, policy, obs, args)

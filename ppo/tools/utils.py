@@ -7,7 +7,7 @@ import copy
 import socket
 import numpy as np
 
-from envs import VecNormalize, make_vec_envs
+from ppo.tools.envs import VecNormalize, make_vec_envs
 
 # Get a render function
 def get_render_func(venv):
@@ -117,13 +117,16 @@ def close_envs(envs, close_envs_manually):
         for env in envs.venv.venv.envs:
             env.env.close()
 
-def evaluate(policy, args, logdir, device, envs, render):
-    env_config = copy.deepcopy(args)
-    env_config.render = render
+def evaluate(policy, args_train, logdir, device, envs, render):
+    args = copy.deepcopy(args_train)
+    args.render = render
     num_processes = 1 if render else args.num_processes
     eval_envs = make_vec_envs(
         args.env_name, args.seed + num_processes, num_processes,
-        args.gamma, logdir, args.add_timestep, device, True, env_config=env_config)
+        args.gamma, logdir, args.add_timestep, device, True, env_config=args)
+    if hasattr(policy.base, 'resnet'):
+        # set the batch norm to the eval mode
+        policy.base.resnet.eval()
 
     vec_norm = get_vec_normalize(eval_envs)
     if vec_norm is not None:
@@ -146,7 +149,7 @@ def evaluate(policy, args, logdir, device, envs, render):
         if not args.use_bcrl_setup:
             obs, reward, done, infos = eval_envs.step(action)
         else:
-            print('master action = {}'.format(action.cpu().numpy()))
+            # print('master action = {}'.format(action.cpu().numpy()))
             obs, reward, done, infos = do_master_step(
                 action, obs, args.timescale, policy, eval_envs)
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
@@ -155,6 +158,9 @@ def evaluate(policy, args, logdir, device, envs, render):
                 eval_episode_rewards.append(info['episode']['r'])
 
     close_envs(eval_envs, close_envs_manually=render)
+    if hasattr(policy.base, 'resnet'):
+        # set the batch norm to the train mode
+        policy.base.resnet.train()
     return eval_episode_rewards
 
 
