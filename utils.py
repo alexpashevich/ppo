@@ -4,6 +4,7 @@ import torch.nn as nn
 import os
 import glob
 import copy
+import socket
 import numpy as np
 
 from envs import VecNormalize, make_vec_envs
@@ -58,7 +59,7 @@ def init_normc_(weight, gain=1):
 
 def set_up_training(args):
     torch.manual_seed(args.seed)
-    if args.cuda:
+    if args.device == 'cuda':
         torch.cuda.manual_seed(args.seed)
     torch.set_num_threads(1)
 
@@ -157,7 +158,7 @@ def evaluate(policy, args, logdir, device, envs, render):
     return eval_episode_rewards
 
 
-def do_master_step(master_action, master_obs, master_timescale, policy, envs, save_frames_dir=None):
+def do_master_step(master_action, master_obs, master_timescale, policy, envs):
     master_reward = 0
     worker_obs = master_obs
     master_done = np.array([False] * master_action.shape[0])
@@ -172,3 +173,12 @@ def do_master_step(master_action, master_obs, master_timescale, policy, envs, sa
         if master_done.all():
             break
     return worker_obs, master_reward / master_timescale, master_done, infos
+
+
+def get_device(device):
+    assert device in ('cpu', 'cuda'), 'device should be in (cpu, cuda)'
+    if socket.gethostname() == 'gemini':
+        device = torch.device("cpu")
+    else:
+        device = torch.device("cuda:0" if device == 'cuda' else "cpu")
+    return device

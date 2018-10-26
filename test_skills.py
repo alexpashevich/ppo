@@ -5,7 +5,7 @@ import torch
 from gym.spaces import Discrete
 
 from model import MasterPolicy
-from utils import load_from_checkpoint, do_master_step, set_up_training
+from utils import load_from_checkpoint, do_master_step, set_up_training, get_device
 from envs import make_vec_envs
 
 def get_args():
@@ -14,8 +14,8 @@ def get_args():
                         help='whether to render the evaluation')
     parser.add_argument('--pudb', action='store_true', default=False,
                         help='whether to stop at the breakpoint for manual actions switching')
-    parser.add_argument('--cuda', action='store_true', default=False,
-                        help='whether to run the policy on cuda')
+    parser.add_argument('--device', type=str, default='cuda',
+                        help='which device to run the experiments on: cuda or cpu')
     parser.add_argument('--input-type', type=str, default='rgbd',
                         help='type of input for the conv nets')
     parser.add_argument('--seed', type=int, default=1,
@@ -51,7 +51,8 @@ def _perform_actions(action_sequence, envs, policy, obs, args):
     reward_sum = np.array([0] * args.num_processes, dtype=np.float)
     for action in action_sequence:
         print('master action = {}'.format(action))
-        action = np.array([action])
+        # action = np.array([action])
+        action = np.array([action for _ in range(args.num_processes)])
         if not args.use_bcrl_setup:
             action = torch.tensor(action)[None]
             _, reward, done, info = envs.step(action)
@@ -64,7 +65,7 @@ def _perform_actions(action_sequence, envs, policy, obs, args):
 
 def main():
     args = get_args()
-    device = torch.device("cuda:0" if args.cuda else "cpu")
+    device = get_device(args.device)
     set_up_training(args)
     envs = make_vec_envs(
         args.env_name, args.seed, args.num_processes, 0.99, None, False, device, True, env_config=args)

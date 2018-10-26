@@ -4,7 +4,7 @@ import os
 import torch
 
 from envs import VecPyTorch, make_vec_envs
-from utils import get_render_func, get_vec_normalize, do_master_step
+from utils import get_render_func, get_vec_normalize, do_master_step, get_device
 
 
 parser = argparse.ArgumentParser(description='RL')
@@ -16,12 +16,12 @@ parser.add_argument('--log-interval', type=int, default=10,
                     help='log interval, one log per n updates (default: 10)')
 parser.add_argument('--non-det', action='store_true', default=False,
                     help='whether to use a non-deterministic policy')
-parser.add_argument('--cuda', action='store_true', default=False,
-                    help='disables CUDA training')
+parser.add_argument('--device', type=str, default='cuda',
+                    help='which device to run the experiments on: cuda or cpu')
 args = parser.parse_args()
 
 args.det = not args.non_det
-device = torch.device("cuda:0" if args.cuda else "cpu")
+device = get_device(args.device)
 
 policy, _, ob_rms, step, config_old = torch.load(os.path.join(args.load_dir, "model_current.pt"))
 if hasattr(policy.base, 'resnet'):
@@ -30,7 +30,7 @@ policy.to(device)
 config_old.render = True  # we want to render the environment
 
 env = make_vec_envs(config_old.env_name, args.seed + 1000, 1,
-                    None, None, config_old.add_timestep, device='cpu',
+                    None, None, config_old.add_timestep, device,
                     allow_early_resets=False, env_config=config_old)
 
 # Get a render function

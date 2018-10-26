@@ -19,8 +19,8 @@ def get_args():
                         help='how many training CPU processes to use (default: 16)')
     parser.add_argument('--num-frames', type=int, default=30e7,
                         help='number of frames to train (default: 10e6)')
-    parser.add_argument('--cuda', action='store_true', default=False,
-                        help='disables CUDA training')
+    parser.add_argument('--device', type=str, default='cuda',
+                        help='which device to run the experiments on: cuda or cpu')
     parser.add_argument('--add-timestep', action='store_true', default=False,
                         help='add timestep to observations')
     parser.add_argument('--input-type', type=str, default='depth',

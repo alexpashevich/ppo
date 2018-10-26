@@ -36,7 +36,7 @@ def main():
     args = get_args()
     logdir = os.path.join(args.logdir, args.timestamp)
     # get the device before loading to enable the GPU/CPU transfer
-    device = torch.device("cuda:0" if args.cuda else "cpu")
+    device = utils.get_device(args.device)
     print('Running the experiments on {}'.format(device))
     # try to load from a checkpoint
     loaded, loaded_tuple = utils.try_to_load_model(logdir)
@@ -80,7 +80,8 @@ def main():
         for step in range(num_master_steps_per_update):
             # Sample actions
             with torch.no_grad():
-                value, action, action_log_prob, recurrent_hidden_states = policy.act(rollouts.obs[step], rollouts.recurrent_hidden_states[step], rollouts.masks[step])
+                value, action, action_log_prob, recurrent_hidden_states = policy.act(
+                    rollouts.obs[step], rollouts.recurrent_hidden_states[step], rollouts.masks[step])
 
             # Observe reward and next obs
             if not args.use_bcrl_setup:
