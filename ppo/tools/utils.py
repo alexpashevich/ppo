@@ -72,7 +72,8 @@ def try_to_load_model(logdir):
             loaded = True
             break
         except Exception as e:
-            print('did not load a policy from {}'.format(os.path.join(logdir, model_name)))
+            # print('did not load a policy from {}'.format(os.path.join(logdir, model_name)))
+            pass
     if not loaded:
         files = glob.glob(os.path.join(logdir, '*.monitor.csv'))
         for f in files:
@@ -96,6 +97,7 @@ def load_from_checkpoint(policy, path, device):
     for key, value in state_dict.items():
         state_dict_renamed[key.replace('module.', '')] = value
     policy.base.resnet.load_state_dict(state_dict_renamed)
+    print('loaded the BC checkpoint from {}'.format(path))
 
 def load_optimizer(optimizer, optimizer_state_dict, device):
     optimizer.load_state_dict(optimizer_state_dict)
@@ -118,13 +120,13 @@ def close_envs(envs, close_envs_manually):
         for env in envs.venv.venv.envs:
             env.env.close()
 
-def evaluate(policy, args_train, logdir, device, envs, render):
+def evaluate(policy, args_train, device, envs, render):
     args = copy.deepcopy(args_train)
     args.render = render
     num_processes = 1 if render else args.num_processes
     eval_envs = make_vec_envs(
         args.env_name, args.seed + num_processes, num_processes,
-        args.gamma, logdir, args.add_timestep, device, True, env_config=args)
+        args.gamma, None, args.add_timestep, device, True, env_config=args)
     if hasattr(policy.base, 'resnet'):
         # set the batch norm to the eval mode
         policy.base.resnet.eval()
@@ -150,9 +152,8 @@ def evaluate(policy, args_train, logdir, device, envs, render):
         if not args.use_bcrl_setup:
             obs, reward, done, infos = eval_envs.step(action)
         else:
-            # print('master action = {}'.format(action.cpu().numpy()))
             obs, reward, done, infos = do_master_step(
-                action, obs, args.timescale, policy, eval_envs)
+                action, obs, args.timescale, policy, eval_envs, render)
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
         for info in infos:
             if 'episode' in info.keys():
@@ -165,7 +166,10 @@ def evaluate(policy, args_train, logdir, device, envs, render):
     return eval_episode_rewards
 
 
-def do_master_step(master_action, master_obs, master_timescale, policy, envs):
+def do_master_step(
+        master_action, master_obs, master_timescale, policy, envs, print_master_action=False):
+    if print_master_action:
+        print('master action = {}'.format(master_action.cpu().numpy()))
     master_reward = 0
     worker_obs = master_obs
     master_done = np.array([False] * master_action.shape[0])

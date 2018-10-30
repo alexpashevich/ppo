@@ -88,9 +88,8 @@ def main():
             if not args.use_bcrl_setup:
                 obs, reward, done, infos = envs.step(action)
             else:
-                # print('master action = {}'.format(action.cpu().numpy()))
                 obs, reward, done, infos = utils.do_master_step(
-                    action, rollouts.obs[step], args.timescale, policy, envs)
+                    action, rollouts.obs[step], args.timescale, policy, envs, args.render_train)
 
             for info in infos:
                 if 'episode' in info.keys():
@@ -119,9 +118,7 @@ def main():
                 total_num_env_steps, start, rewards_train, action_loss, value_loss, dist_entropy)
 
         if (args.eval_interval and len(rewards_train) > 1 and epoch % args.eval_interval == 0):
-            rewards_eval = utils.evaluate(policy, args, logdir, device, envs, args.render_eval)
-            # TODO: put the network in the eval mode
-            # .eval and .train
+            rewards_eval = utils.evaluate(policy, args, device, envs, args.render_eval)
             log.log_eval(rewards_eval, total_num_env_steps)
             if epoch % (args.save_interval * args.eval_interval) == 0:
                 log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
