@@ -17,7 +17,7 @@ python -m ppo.scripts.enjoy --load-dir {}
 
 To test the skills, run:
 ```bash
-python -m ppo.scripts.test_skills --env-name UR5-BowlCamEnv-v0 --use-bcrl-setup --render --checkpoint-path <path_to_the_skill_network_trained_with_bc>
+python -m ppo.scripts.test_skills --render -cp <path_to_the_skill_network_trained_with_bc>
 ```
 By default it will run the environment 100 times (can be changed with `--num-episodes`) and print the success rate. To run the script faster, increase the number of processes with `--num-processes` (1 by deafult). If more than 1 process is running, the environment can not be rendered (do not set `--num-processes>1` and `--render` in the same time). The sequence of skills by default is `[0, 0, 1, 2, 3]` and you can change with, e.g. `--action-sequence='[3, 2, 1, 0]'` (loaded as a json string).
 
@@ -27,7 +27,7 @@ You can also pass the flag `--pudb` and perform the sequence of actions manually
 
 Run:
 ```bash
-python run_unittests.py
+python -m ppo.tests.run
 ```
 
 # (original README is below) pytorch-a2c-ppo-acktr

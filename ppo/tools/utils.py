@@ -90,6 +90,7 @@ def load_from_checkpoint(policy, path, device):
         state_dict = torch.load(path, map_location=lambda storage, loc: storage)
     else:
         state_dict = torch.load(path)
+    state_dict = state_dict['net_state_dict']
     # BC training produces names of weights with "module." in the beginning
     state_dict_renamed = {}
     for key, value in state_dict.items():
@@ -175,7 +176,8 @@ def do_master_step(master_action, master_obs, master_timescale, policy, envs):
         master_reward += reward
         master_done = np.logical_or(master_done, done)
         if done.any() and not done.all():
-            print('WARNING: one or several envs are done but not all during the macro step!')
+            # print('WARNING: one or several envs are done but not all during the macro step!')
+            pass
         if master_done.all():
             break
     return worker_obs, master_reward / master_timescale, master_done, infos

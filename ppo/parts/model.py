@@ -293,7 +293,7 @@ class ResnetBase(NNBase):
             hidden_actor = self.actor(features.detach())
             return self.critic_linear(hidden_critic), hidden_actor, unused_rnn_hxs
         else:
-            # all_skills_actions: num_processes x (num_skills x dim_skill_action x num_skill_action_pred)
+            # all_skills_actions: num_processes x (num_skills*dim_skill_action*num_skill_action_pred)
             # master_action: num_processes x 1
             skills_actions = []
             for env_id, skill_id in enumerate(master_action):

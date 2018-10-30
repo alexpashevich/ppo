@@ -1,6 +1,8 @@
 import gym
 import itertools
 import numpy as np
+import json
+import os
 
 from collections import deque
 from gym.spaces import Box, Discrete
@@ -35,6 +37,23 @@ class MiMEEnv(object):
         # bcrl related stuff
         self.use_bcrl_setup = vars(config).get('use_bcrl_setup', False)
         self.dim_skill_action = vars(config).get('dim_skill_action', 5)
+
+        self.action_keys = list(self.env.action_space.spaces.keys())
+        if vars(config).get('checkpoint_path', None) is not None:
+            # load action statistics for the denormalization
+            self.action_mean, self.action_std,  = self._load_action_stats(
+                config.checkpoint_path)
+
+    def _load_action_stats(self, checkpoint_path):
+        checkpoint_dir = '/'.join(checkpoint_path.split('/')[:-1])
+        infos_path = os.path.join(checkpoint_dir, 'info.json')
+        stats = json.load(open(infos_path, 'r'))['statistics'][0]
+        # get network dataset statistics
+        # keys_action = ['joint_velocity', 'linear_velocity', 'angular_velocity']
+        mean, std = {}, {}
+        for action_key in self.action_keys:
+            mean[action_key], std[action_key] = stats['action'][action_key]
+        return mean, std
 
     @property
     def observation_space(self):
@@ -104,19 +123,36 @@ class MiMEEnv(object):
                 # observation: (3 or 12) x 240 x 320
         return observation
 
-    def _get_action_dict(self, action):
-        # we need to multiply the actions by the max actions
-        max_gripper_velocity = self.env.unwrapped.scene.max_gripper_velocity
-        max_linear_velocity, max_angular_velocity = self.env.unwrapped.scene.max_tool_velocity
+    def _get_null_action_dict(self):
+        action_dict = {}
+        for action_key in self.action_keys:
+            if action_key == 'grip_velocity':
+                action_dict[action_key] = 0
+            elif action_key in ('linear_velocity', 'angular_velocity'):
+                action_dict[action_key] = [0] * 3
+            elif action_key == 'joint_velocity':
+                action_dict[action_key] = [0] * 7
+            else:
+                raise ValueError('Unknown action_key = {}'.format(action_key))
+        return action_dict
 
-        action_dict = {
-            'linear_velocity': [0, 0, 0],
-            'angular_velocity': [0, 0, 0],
-            'grip_velocity': 0}
-        action_dict['grip_velocity'] = (-1 + 2 * (action[0] > action[1])) * max_gripper_velocity
-        action_dict['linear_velocity'] = action[2:5] * max_linear_velocity
-        if len(action) == 8:
-            action_dict['angular_velocity'] = action[5:8] * max_angular_velocity
+    def _get_action_dict(self, action):
+        # we multiply the actions by std and shift by mean (except for the gripper velocity)
+        action_dict = self._get_null_action_dict()
+        for action_key in self.action_keys:
+            if action_key != 'grip_velocity':
+                if action_key == 'joint_velocity':
+                    action_value = action[2:8]
+                elif action_key == 'linear_velocity':
+                    action_value = action[2:5]
+                elif action_key == 'angular_velocity':
+                    action_value = action[5:8]
+                action_value *= self.action_std[action_key]
+                action_value += self.action_mean[action_key]
+                action_dict[action_key] = action_value
+            else:
+                action_value = -1 + 2 * (action[0] > action[1])
+                action_dict['grip_velocity'] = action_value * 2
         return action_dict
 
     def _print_action(self, action):
@@ -135,10 +171,7 @@ class MiMEEnv(object):
     def _scripted_step(self, action):
         action_scripts = self.env.unwrapped.scene.script_subtask(action)
         action_chain = itertools.chain(*action_scripts)
-        action_dict = {
-            'linear_velocity': [0, 0, 0],
-            'angular_velocity': [0, 0, 0],
-            'grip_velocity': 0}
+        action_dict = self._get_null_action_dict()
         action_dict_null = deepcopy(action_dict)
         observs, reward = [], 0
         for _ in range(self.timescale):
