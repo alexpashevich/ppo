@@ -1,5 +1,6 @@
 import os
 import time
+import numpy as np
 from collections import deque
 from gym.spaces import Discrete
 
@@ -74,6 +75,7 @@ def main():
     rollouts.to(device)
 
     rewards_train = deque([0]*100, maxlen=100)
+    returns = np.array([0] * args.num_processes, dtype=np.float)
 
     start = time.time()
     for epoch in range(start_epoch, num_updates):
@@ -91,9 +93,16 @@ def main():
                 obs, reward, done, infos = utils.do_master_step(
                     action, rollouts.obs[step], args.timescale, policy, envs, args.render_train)
 
-            for info in infos:
-                if 'episode' in info.keys():
-                    rewards_train.append(info['episode']['r'])
+            returns += reward[:, 0]
+            # append returns of envs that are done (reset)
+            rewards_train.extend(returns[np.where(done)])
+            if np.any(done):
+                print('appending to rewards_train: done = {}, returns = {}'.format(done, returns))
+            # zero out returns of the envs that are done (reset)
+            returns[np.where(done)] = 0
+            # for info in infos:
+            #     if 'episode' in info.keys():
+            #         rewards_train.append(info['episode']['r'])
 
             # If done then clean the history of observations.
             masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
@@ -117,7 +126,8 @@ def main():
             log.log_train(
                 total_num_env_steps, start, rewards_train, action_loss, value_loss, dist_entropy)
 
-        if (args.eval_interval and len(rewards_train) > 1 and epoch % args.eval_interval == 0):
+        is_eval_time = epoch > 0 and epoch % args.eval_interval == 0
+        if (args.eval_interval and len(rewards_train) > 1 and is_eval_time):
             rewards_eval = utils.evaluate(policy, args, device, envs, args.render_eval)
             log.log_eval(rewards_eval, total_num_env_steps)
             if epoch % (args.save_interval * args.eval_interval) == 0:

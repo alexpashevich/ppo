@@ -182,7 +182,6 @@ class MiMEEnv(object):
             if done:
                 break
         observation = self._obs_dict_to_numpy(observs)
-        reward /= self.timescale
         return observation, reward, done, info
 
     def _bcrl_step(self, action):

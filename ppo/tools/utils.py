@@ -141,6 +141,7 @@ def evaluate(policy, args_train, device, envs, render):
     eval_recurrent_hidden_states = torch.zeros(
         num_processes, policy.recurrent_hidden_state_size, device=device)
     eval_masks = torch.zeros(num_processes, 1, device=device)
+    returns = np.array([0] * args.num_processes, dtype=np.float)
 
     while len(eval_episode_rewards) < args.num_eval_episodes:
         with torch.no_grad():
@@ -154,10 +155,18 @@ def evaluate(policy, args_train, device, envs, render):
         else:
             obs, reward, done, infos = do_master_step(
                 action, obs, args.timescale, policy, eval_envs, render)
+
+        returns += reward[:, 0]
+        # append returns of envs that are done (reset)
+        eval_episode_rewards.extend(returns[np.where(done)])
+        if np.any(done):
+            print('appending to rewards_train: done = {}, returns = {}'.format(done, returns))
+        # zero out returns of the envs that are done (reset)
+        returns[np.where(done)] = 0
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
-        for info in infos:
-            if 'episode' in info.keys():
-                eval_episode_rewards.append(info['episode']['r'])
+        # for info in infos:
+        #     if 'episode' in info.keys():
+        #         eval_episode_rewards.append(info['episode']['r'])
 
     close_envs(eval_envs, close_envs_manually=render)
     if hasattr(policy.base, 'resnet'):
@@ -169,7 +178,7 @@ def evaluate(policy, args_train, device, envs, render):
 def do_master_step(
         master_action, master_obs, master_timescale, policy, envs, print_master_action=False):
     if print_master_action:
-        print('master action = {}'.format(master_action.cpu().numpy()))
+        print('master action = {}'.format(master_action.cpu().numpy()[:, 0]))
     master_reward = 0
     worker_obs = master_obs
     master_done = np.array([False] * master_action.shape[0])
@@ -184,7 +193,7 @@ def do_master_step(
             pass
         if master_done.all():
             break
-    return worker_obs, master_reward / master_timescale, master_done, infos
+    return worker_obs, master_reward, master_done, infos
 
 
 def get_device(device):
