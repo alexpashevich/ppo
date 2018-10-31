@@ -19,8 +19,8 @@ def get_args():
                         help='whether to use a non-deterministic policy')
     parser.add_argument('--device', type=str, default='cuda',
                         help='which device to run the experiments on: cuda or cpu')
-    parser.add_argument('--num-episodes', type=int, default=10,
-                        help='number of episodes to render')
+    # parser.add_argument('--num-episodes', type=int, default=10,
+    #                     help='number of episodes to render')
     parser.add_argument('--no-render', action='store_true', default=False,
                         help='whether to render the environment')
     args = parser.parse_args()
@@ -44,9 +44,6 @@ def main():
                         None, None, config_old.add_timestep, device,
                         allow_early_resets=False, env_config=config_old)
 
-    # Get a render function
-    # render_func = get_render_func(env)
-
     print('Rendering the model after {} steps'.format(step))
 
     vec_norm = get_vec_normalize(env)
@@ -54,12 +51,9 @@ def main():
         vec_norm.eval()
         vec_norm.ob_rms = ob_rms
 
-    # if render_func is not None:
-    #     render_func('human')
-
     obs = env.reset()
 
-    for _ in range(args.num_episodes):
+    while True:
         with torch.no_grad():
             value, action, _, _ = policy.act(obs, None, None, deterministic=args.det)
 
@@ -71,9 +65,6 @@ def main():
             obs, reward, done, _ = do_master_step(
                 action, obs, config_old.timescale, policy, env)
         print('reward = {}'.format(reward.numpy()[0,0]))
-
-        # if render_func is not None:
-        #     render_func('human')
 
 if __name__ == '__main__':
     main()

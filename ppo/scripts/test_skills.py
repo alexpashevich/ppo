@@ -89,7 +89,7 @@ def main():
     if args.use_bcrl_setup:
         assert args.checkpoint_path, 'does not make sense to test the random network'
         assert 'Cam' in args.env_name, 'bcrl setup works only from the depth input'
-        print('Using BCRL setup, loading the skills from {}'.format(args.checkpoint_path))
+        print('Using the BCRL setup')
         action_space = Discrete(args.num_skills)
         policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
         load_from_checkpoint(policy, args.checkpoint_path, device)
