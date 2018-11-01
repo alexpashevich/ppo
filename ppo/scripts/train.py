@@ -125,8 +125,7 @@ def main():
                 total_num_env_steps, start, returns_train, lengths_train, action_loss,
                 value_loss, dist_entropy)
 
-        # is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
-        is_eval_time = True
+        is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
         if (args.eval_interval and len(returns_train) > 1 and is_eval_time):
             returns_eval, lengths_eval = utils.evaluate(policy, args, device, envs, render)
             log.log_eval(returns_eval, lengths_eval, total_num_env_steps)
