@@ -136,14 +136,15 @@ def evaluate(policy, args_train, device, envs, render):
         vec_norm.eval()
         vec_norm.ob_rms = get_vec_normalize(envs).ob_rms
 
-    eval_episode_rewards = []
+    returns_eval, lengths_eval = [], []
     obs = eval_envs.reset()
     eval_recurrent_hidden_states = torch.zeros(
         num_processes, policy.recurrent_hidden_state_size, device=device)
     eval_masks = torch.zeros(num_processes, 1, device=device)
-    returns = np.array([0] * args.num_processes, dtype=np.float)
+    returns_current = np.array([0] * num_processes, dtype=np.float)
+    lengths_current = np.array([0] * num_processes, dtype=np.float)
 
-    while len(eval_episode_rewards) < args.num_eval_episodes:
+    while len(returns_eval) < args.num_eval_episodes:
         with torch.no_grad():
             _, action, _, eval_recurrent_hidden_states = policy.act(
                 obs, eval_recurrent_hidden_states, eval_masks, deterministic=True)
@@ -156,23 +157,19 @@ def evaluate(policy, args_train, device, envs, render):
             obs, reward, done, infos = do_master_step(
                 action, obs, args.timescale, policy, eval_envs, render)
 
-        returns += reward[:, 0]
+        returns_current, lengths_current = returns_current + reward[:, 0].numpy(), lengths_current + 1
         # append returns of envs that are done (reset)
-        eval_episode_rewards.extend(returns[np.where(done)])
-        if np.any(done):
-            print('appending to rewards_train: done = {}, returns = {}'.format(done, returns))
+        returns_eval.extend(returns_current[np.where(done)])
+        lengths_eval.extend(lengths_current[np.where(done)])
         # zero out returns of the envs that are done (reset)
-        returns[np.where(done)] = 0
+        returns_current[np.where(done)], lengths_current[np.where(done)] = 0, 0
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
-        # for info in infos:
-        #     if 'episode' in info.keys():
-        #         eval_episode_rewards.append(info['episode']['r'])
 
     close_envs(eval_envs, close_envs_manually=render)
     if hasattr(policy.base, 'resnet'):
         # set the batch norm to the train mode
         policy.base.resnet.train()
-    return eval_episode_rewards
+    return returns_eval, lengths_eval
 
 
 def do_master_step(

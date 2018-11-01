@@ -74,8 +74,10 @@ def main():
     rollouts.obs[0].copy_(obs)
     rollouts.to(device)
 
-    rewards_train = deque([0]*100, maxlen=100)
-    returns = np.array([0] * args.num_processes, dtype=np.float)
+    returns_train = deque([0]*100, maxlen=100)
+    lengths_train = deque(maxlen=100)
+    returns_current = np.array([0] * args.num_processes, dtype=np.float32)
+    lengths_current = np.array([0] * args.num_processes, dtype=np.int32)
 
     start = time.time()
     for epoch in range(start_epoch, num_updates):
@@ -93,14 +95,12 @@ def main():
                 obs, reward, done, infos = utils.do_master_step(
                     action, rollouts.obs[step], args.timescale, policy, envs)
 
-            returns += reward[:, 0]
+            returns_current, lengths_current = returns_current + reward[:, 0].numpy(), lengths_current+1
             # append returns of envs that are done (reset)
-            rewards_train.extend(returns[np.where(done)])
+            returns_train.extend(returns_current[np.where(done)])
+            lengths_train.extend(lengths_current[np.where(done)])
             # zero out returns of the envs that are done (reset)
-            returns[np.where(done)] = 0
-            # for info in infos:
-            #     if 'episode' in info.keys():
-            #         rewards_train.append(info['episode']['r'])
+            returns_current[np.where(done)], lengths_current[np.where(done)] = 0, 0
 
             # If done then clean the history of observations.
             masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
@@ -120,14 +120,16 @@ def main():
 
         total_num_env_steps = (epoch + 1) * args.num_processes * args.num_frames_per_update
 
-        if epoch % args.log_interval == 0 and len(rewards_train) > 1:
+        if epoch % args.log_interval == 0 and len(returns_train) > 1:
             log.log_train(
-                total_num_env_steps, start, rewards_train, action_loss, value_loss, dist_entropy)
+                total_num_env_steps, start, returns_train, lengths_train, action_loss,
+                value_loss, dist_entropy)
 
-        is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
-        if (args.eval_interval and len(rewards_train) > 1 and is_eval_time):
-            rewards_eval = utils.evaluate(policy, args, device, envs, render)
-            log.log_eval(rewards_eval, total_num_env_steps)
+        # is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
+        is_eval_time = True
+        if (args.eval_interval and len(returns_train) > 1 and is_eval_time):
+            returns_eval, lengths_eval = utils.evaluate(policy, args, device, envs, render)
+            log.log_eval(returns_eval, lengths_eval, total_num_env_steps)
             if epoch % (args.save_interval * args.eval_interval) == 0:
                 log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
 
