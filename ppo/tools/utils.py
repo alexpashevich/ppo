@@ -120,13 +120,14 @@ def close_envs(envs, close_envs_manually):
         for env in envs.venv.venv.envs:
             env.env.close()
 
-def evaluate(policy, args_train, device, envs, render):
+def evaluate(policy, args_train, device, envs, render, eval_envs):
     args = copy.deepcopy(args_train)
     args.render = render
     num_processes = 1 if render else args.num_processes
-    eval_envs = make_vec_envs(
-        args.env_name, args.seed + num_processes, num_processes,
-        args.gamma, None, args.add_timestep, device, True, env_config=args)
+    if eval_envs is None:
+        eval_envs = make_vec_envs(
+            args.env_name, args.seed + num_processes, num_processes,
+            args.gamma, None, args.add_timestep, device, True, env_config=args)
     if hasattr(policy.base, 'resnet'):
         # set the batch norm to the eval mode
         policy.base.resnet.eval()
@@ -169,7 +170,7 @@ def evaluate(policy, args_train, device, envs, render):
     if hasattr(policy.base, 'resnet'):
         # set the batch norm to the train mode
         policy.base.resnet.train()
-    return returns_eval, lengths_eval
+    return eval_envs, returns_eval, lengths_eval
 
 
 def do_master_step(

@@ -21,6 +21,7 @@ class MiMEEnv(object):
         self.num_skills = vars(config).get('num_skills', 4)
         self.timescale = vars(config).get('timescale', 25)
         self._render = vars(config).get('render', False) and id == 0
+        self._id = id
         self.num_frames = 3  # use last 3 depth maps as an observation for BowlCamEnv
         self.observation_type = vars(config).get('input_type', 'depth')
         self.last_observations = deque(maxlen=self.num_frames)

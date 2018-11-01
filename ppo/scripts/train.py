@@ -15,6 +15,7 @@ from ppo.parts.model import Policy, MasterPolicy
 from ppo.parts.storage import RolloutStorage
 
 def create_envs(args, device):
+    args.render = False
     envs = make_vec_envs(
         args.env_name, args.seed, args.num_processes, args.gamma,
         None, args.add_timestep, device, False, env_config=args)
@@ -49,6 +50,7 @@ def main():
 
     # create the parallel envs
     envs = create_envs(args, device)
+    eval_envs = None
     # create the policy
     # TODO: refactor this later
     action_space = Discrete(args.num_skills) if args.use_bcrl_setup else envs.action_space
@@ -127,7 +129,8 @@ def main():
 
         is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
         if (args.eval_interval and len(returns_train) > 1 and is_eval_time):
-            returns_eval, lengths_eval = utils.evaluate(policy, args, device, envs, render)
+            eval_envs, returns_eval, lengths_eval = utils.evaluate(
+                policy, args, device, envs, render, eval_envs)
             log.log_eval(returns_eval, lengths_eval, total_num_env_steps)
             if epoch % (args.save_interval * args.eval_interval) == 0:
                 log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
