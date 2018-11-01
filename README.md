@@ -7,8 +7,7 @@ To train you need to run:
 ```bash
 python -m ppo.scripts.train --num-mini-batch 4 --num-processes 8 --num-frames-per-update 500 --timescale 40 --entropy-coef 0.05 --value-loss-coef 1 --use-bcrl-setup --logdir {} --checkpoint-path {}
 ```
-
-The training will be done on GPU if it is available. Use can render the result with the `enjoy.py` script. It will render the environment:
+The training will be done on GPU if it is available. You can render the evaluation environments by setting `--render` but it may takes some time. Use can render the result with the `enjoy.py` script. It will render the environment:
 ```bash
 python -m ppo.scripts.enjoy --load-dir {}
 ```

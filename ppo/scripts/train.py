@@ -15,7 +15,6 @@ from ppo.parts.model import Policy, MasterPolicy
 from ppo.parts.storage import RolloutStorage
 
 def create_envs(args, device):
-    args.render = args.render_train
     envs = make_vec_envs(
         args.env_name, args.seed, args.num_processes, args.gamma,
         None, args.add_timestep, device, False, env_config=args)
@@ -36,6 +35,7 @@ def create_agent(args, policy):
 
 def main():
     args = get_args()
+    render = args.render
     logdir = os.path.join(args.logdir, args.timestamp)
     # get the device before loading to enable the GPU/CPU transfer
     device = utils.get_device(args.device)
@@ -91,13 +91,11 @@ def main():
                 obs, reward, done, infos = envs.step(action)
             else:
                 obs, reward, done, infos = utils.do_master_step(
-                    action, rollouts.obs[step], args.timescale, policy, envs, args.render_train)
+                    action, rollouts.obs[step], args.timescale, policy, envs)
 
             returns += reward[:, 0]
             # append returns of envs that are done (reset)
             rewards_train.extend(returns[np.where(done)])
-            if np.any(done):
-                print('appending to rewards_train: done = {}, returns = {}'.format(done, returns))
             # zero out returns of the envs that are done (reset)
             returns[np.where(done)] = 0
             # for info in infos:
@@ -126,9 +124,9 @@ def main():
             log.log_train(
                 total_num_env_steps, start, rewards_train, action_loss, value_loss, dist_entropy)
 
-        is_eval_time = epoch > 0 and epoch % args.eval_interval == 0
+        is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
         if (args.eval_interval and len(rewards_train) > 1 and is_eval_time):
-            rewards_eval = utils.evaluate(policy, args, device, envs, args.render_eval)
+            rewards_eval = utils.evaluate(policy, args, device, envs, render)
             log.log_eval(rewards_eval, total_num_env_steps)
             if epoch % (args.save_interval * args.eval_interval) == 0:
                 log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)

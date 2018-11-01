@@ -11,10 +11,8 @@ def get_args():
                         help='environment to train on (default: UR5-BowlCamEnv-v0)')
     parser.add_argument('--seed', type=int, default=1,
                         help='random seed (default: 1)')
-    parser.add_argument('--render-train', action='store_true', default=False,
-                        help='whether to render the train')
-    parser.add_argument('--render-eval', action='store_true', default=False,
-                        help='whether to render the evaluation')
+    parser.add_argument('--render', action='store_true', default=False,
+                        help='whether to render the evaluation (will be done after every epoch)')
     parser.add_argument('--num-processes', type=int, default=16,
                         help='how many training CPU processes to use (default: 16)')
     parser.add_argument('--num-frames', type=int, default=30e7,
