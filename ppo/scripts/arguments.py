@@ -60,6 +60,10 @@ def get_args():
                         help='master timescale')
     parser.add_argument('--num-skills', type=int, default=4,
                         help='number of skills')
+    parser.add_argument('--checkpoint-path', type=str, default=None,
+                        help='if specified, load the networks weights from the file')
+    parser.add_argument('--archi', type=str, default='resnet18',
+                        help='which architecture to use (from bc.net.architectures.resnet)')
     # BC skills settings (should match the BC checkpoint)
     parser.add_argument('--dim-skill-action', type=int, default=5,
                         help='dimensionality of a skill action')
@@ -78,11 +82,8 @@ def get_args():
                         help='timestep for a given training')
     parser.add_argument('--log-interval', type=int, default=5,
                         help='log interval, one log per n updates (default: 10)')
-    # models
     parser.add_argument('--save-interval', type=int, default=5,
                         help='save interval, one save per n updates (default: 100)')
-    parser.add_argument('--checkpoint-path', type=str, default=None,
-                        help='if specified, load the networks weights from the file')
 
     args = parser.parse_args()
     args.recurrent_policy = False  # turn off recurrent policies support

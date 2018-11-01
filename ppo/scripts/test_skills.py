@@ -41,6 +41,8 @@ def get_args():
                         help='dimensionality of a skill action')
     parser.add_argument('--num-skill-action-pred', '-nap', type=int, default=4,
                         help='dimensionality of a skill action')
+    parser.add_argument('--archi', type=str, default='resnet18',
+                        help='which architecture to use (from bc.net.architectures.resnet)')
     parser.add_argument('--checkpoint-path', '-cp', type=str, default=None,
                         help='if specified, load the networks weights from the file')
     args = parser.parse_args()

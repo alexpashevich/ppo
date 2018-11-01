@@ -227,8 +227,9 @@ class ResnetBase(NNBase):
             num_skills=4,
             dim_skill_action=4,
             num_skill_action_pred=1,
-            recurrent_policy=False,  # do not supported
+            recurrent_policy=False,  # is not supported
             hidden_size=64,
+            archi='resnet18',
             **kwargs):
         super(ResnetBase, self).__init__(recurrent_policy, hidden_size, hidden_size)
 
@@ -236,8 +237,13 @@ class ResnetBase(NNBase):
         self.dim_skill_action = dim_skill_action
         self.num_skill_action_pred = num_skill_action_pred
         num_outputs_resnet = self.num_skills * dim_skill_action * num_skill_action_pred
-        self.resnet = resnet.resnet18(
-            pretrained=False, input_dim=num_inputs, num_classes=num_outputs_resnet, return_features=True)
+        self.resnet = getattr(resnet, archi)(
+            pretrained=False,
+            input_dim=num_inputs,
+            num_classes=num_outputs_resnet,  # dim_action in ResNet
+            num_skills=num_skills,
+            dim_action=dim_skill_action*num_skill_action_pred,  # dim_action in ResNetBranch
+            return_features=True)
 
         self._transform = transforms.Compose([transforms.ToPILImage(),
                                               transforms.Resize([224, 224]),

@@ -19,8 +19,8 @@ def get_args():
                         help='whether to use a non-deterministic policy')
     parser.add_argument('--device', type=str, default='cuda',
                         help='which device to run the experiments on: cuda or cpu')
-    # parser.add_argument('--num-episodes', type=int, default=10,
-    #                     help='number of episodes to render')
+    parser.add_argument('--num-whiles', type=int, default=420,
+                        help='number of episodes to render')
     parser.add_argument('--no-render', action='store_true', default=False,
                         help='whether to render the environment')
     args = parser.parse_args()
@@ -53,7 +53,7 @@ def main():
 
     obs = env.reset()
 
-    while True:
+    for _ in range(args.num_whiles):
         with torch.no_grad():
             value, action, _, _ = policy.act(obs, None, None, deterministic=args.det)
 
