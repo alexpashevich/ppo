@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--logdir', type=str, default='{}/Logs/agents'.format(HOME),
                     help='directory where to save the logs of the tests')
 parser.add_argument('--resnet18-branch-checkpoint-path', type=str,
-                    default='{}/Dumps/bowlenv4/test/resnet18_ftbranch_current.pth'.format(
+                    default='{}/Dumps/bowlenv4/test/resnet18_featbranch_current.pth'.format(
                         HOME),
                     help='directory with a BC skills resnet18_featbranch checkpoint')
 # parser.add_argument('--resnet18-checkpoint-path', type=str,
