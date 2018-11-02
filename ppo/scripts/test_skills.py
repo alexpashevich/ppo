@@ -59,7 +59,6 @@ def _perform_actions(action_sequence, envs, policy, obs, args):
             action = torch.tensor(action)[None]
             _, reward_step, done_step, info_step = envs.step(action)
         else:
-            import pudb; pudb.set_trace()
             obs, reward_step, done_step, info_step = do_master_step(
                 action, obs, args.timescale, policy, envs)
         for env_id, done_before_step in enumerate(done_glob):
