@@ -18,8 +18,14 @@ def create_envs(args, device):
     args.render = False
     envs = make_vec_envs(
         args.env_name, args.seed, args.num_processes, args.gamma,
-        None, args.add_timestep, device, False, env_config=args)
+        args.add_timestep, device, False, env_config=args)
     return envs
+
+def create_render_env(args, device):
+    args.render = True
+    return make_vec_envs(
+        args.env_name, [args.seed, args.seed + args.num_processes], 1, args.gamma,
+        args.add_timestep, device, False, env_config=args)
 
 def create_policy(args, envs, device, action_space):
     PolicyClass = MasterPolicy if args.use_bcrl_setup else Policy
@@ -51,6 +57,7 @@ def main():
     # create the parallel envs
     envs = create_envs(args, device)
     eval_envs = None
+    # render_envs = create_render_env(args, device) if render else None
     # create the policy
     # TODO: refactor this later
     action_space = Discrete(args.num_skills) if args.use_bcrl_setup else envs.action_space
@@ -130,7 +137,8 @@ def main():
         is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
         if (args.eval_interval and len(returns_train) > 1 and is_eval_time):
             eval_envs, returns_eval, lengths_eval = utils.evaluate(
-                policy, args, device, envs, render, eval_envs)
+                policy, args, device, envs, eval_envs, render)
+                # policy, args, device, envs, eval_envs)
             log.log_eval(returns_eval, lengths_eval, total_num_env_steps)
             if epoch % (args.save_interval * args.eval_interval) == 0:
                 log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)

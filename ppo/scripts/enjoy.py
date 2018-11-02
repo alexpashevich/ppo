@@ -41,7 +41,7 @@ def main():
     config_old.render = args.render
 
     env = make_vec_envs(config_old.env_name, args.seed + 1000, 1,
-                        None, None, config_old.add_timestep, device,
+                        None, config_old.add_timestep, device,
                         allow_early_resets=False, env_config=config_old)
 
     print('Rendering the model after {} steps'.format(step))

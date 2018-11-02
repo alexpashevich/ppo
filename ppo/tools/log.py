@@ -31,7 +31,7 @@ def log_train(total_steps, start, returns, lengths, action_loss, value_loss, ent
     end = time.time()
     print("Training after {} steps, FPS {}".format(
         total_steps, int(total_steps / (end - start))))
-    print("Last {} training episodes: mean reward {:.1f}, min/max reward {:.1f}/{:.1f}\n".format(
+    print("Last {} training episodes: mean reward {:.1f}, min/max reward {:.1f}/{:.1f}".format(
         len(returns), np.mean(returns),
         np.min(returns), np.max(returns)))
     add_summary('env/mean_reward', np.mean(returns), total_steps)
@@ -42,7 +42,7 @@ def log_train(total_steps, start, returns, lengths, action_loss, value_loss, ent
     add_summary('loss/entropy', entropy, total_steps)
 
 def log_eval(returns, lengths, total_steps):
-    print("Evaluation after {} steps using {} episodes: mean reward {:.5f}\n". format(
+    print("Evaluation after {} steps using {} episodes: mean reward {:.5f}". format(
         total_steps, len(returns), np.mean(returns)))
     add_summary('env/mean_reward', np.mean(returns), total_steps, 'eval')
     add_summary('env/max_reward', np.max(returns), total_steps, 'eval')

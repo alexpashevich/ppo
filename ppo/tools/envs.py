@@ -12,7 +12,7 @@ from baselines.common.vec_env.vec_normalize import VecNormalize as VecNormalize_
 
 from ppo.parts.mime_env import MiMEEnv
 
-def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, env_config):
+def make_env(env_id, seed, rank, add_timestep, allow_early_resets, env_config):
     def _thunk():
         if 'UR5' in env_id:
             print('creating MiME env with id {}'.format(rank))
@@ -27,10 +27,6 @@ def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, env_
                 obs_shape) == 1 and str(env).find('TimeLimit') > -1:
             env = AddTimestep(env)
 
-        if log_dir is not None:
-            env = bench.Monitor(env, os.path.join(log_dir, str(rank)),
-                                allow_early_resets=allow_early_resets)
-
         # If the input has shape (W,H,3), wrap for PyTorch convolutions
         if len(obs_shape) == 3 and obs_shape[2] in [1, 3]:
             env = TransposeImage(env)
@@ -39,10 +35,18 @@ def make_env(env_id, seed, rank, log_dir, add_timestep, allow_early_resets, env_
 
     return _thunk
 
-def make_vec_envs(env_name, seed, num_processes, gamma, log_dir, add_timestep,
+def make_vec_envs(env_name, seed, num_processes, gamma, add_timestep,
                   device, allow_early_resets, num_frame_stack=None, env_config=None):
-    envs = [make_env(env_name, seed, i, log_dir, add_timestep, allow_early_resets, env_config)
-            for i in range(num_processes)]
+    if isinstance(seed, int):
+        # train and eval envs case
+        envs = [make_env(env_name, seed, i, add_timestep, allow_early_resets, env_config)
+                for i in range(num_processes)]
+    else:
+        # render envs case
+        seed_list = seed
+        envs = [make_env(env_name, env_seed, 0, add_timestep, allow_early_resets, env_config)
+                for env_seed in seed_list]
+
 
     if len(envs) > 1:
         envs = SubprocVecEnv(envs)

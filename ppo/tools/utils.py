@@ -120,14 +120,14 @@ def close_envs(envs, close_envs_manually):
         for env in envs.venv.venv.envs:
             env.env.close()
 
-def evaluate(policy, args_train, device, envs, render, eval_envs):
+def evaluate(policy, args_train, device, envs, eval_envs, render):
     args = copy.deepcopy(args_train)
     args.render = render
     num_processes = 1 if render else args.num_processes
     if eval_envs is None:
         eval_envs = make_vec_envs(
             args.env_name, args.seed + num_processes, num_processes,
-            args.gamma, None, args.add_timestep, device, True, env_config=args)
+            args.gamma, args.add_timestep, device, True, env_config=args)
     if hasattr(policy.base, 'resnet'):
         # set the batch norm to the eval mode
         policy.base.resnet.eval()
@@ -145,6 +145,7 @@ def evaluate(policy, args_train, device, envs, render, eval_envs):
     returns_current = np.array([0] * num_processes, dtype=np.float)
     lengths_current = np.array([0] * num_processes, dtype=np.float)
 
+    print('Evaluating...')
     while len(returns_eval) < args.num_eval_episodes:
         with torch.no_grad():
             _, action, _, eval_recurrent_hidden_states = policy.act(
@@ -156,7 +157,7 @@ def evaluate(policy, args_train, device, envs, render, eval_envs):
             obs, reward, done, infos = eval_envs.step(action)
         else:
             obs, reward, done, infos = do_master_step(
-                action, obs, args.timescale, policy, eval_envs, render)
+                action, obs, args.timescale, policy, eval_envs)
 
         returns_current, lengths_current = returns_current + reward[:, 0].numpy(), lengths_current + 1
         # append returns of envs that are done (reset)
@@ -166,7 +167,7 @@ def evaluate(policy, args_train, device, envs, render, eval_envs):
         returns_current[np.where(done)], lengths_current[np.where(done)] = 0, 0
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
 
-    close_envs(eval_envs, close_envs_manually=render)
+    # close_envs(eval_envs, close_envs_manually=render)
     if hasattr(policy.base, 'resnet'):
         # set the batch norm to the train mode
         policy.base.resnet.train()

@@ -80,7 +80,7 @@ def main():
     device = get_device(args.device)
     set_up_training(args)
     envs = make_vec_envs(
-        args.env_name, args.seed, args.num_processes, 0.99, None, False, device, True, env_config=args)
+        args.env_name, args.seed, args.num_processes, 0.99, False, device, True, env_config=args)
     obs = envs.reset()
     policy = None
     if args.num_episodes % args.num_processes != 0:

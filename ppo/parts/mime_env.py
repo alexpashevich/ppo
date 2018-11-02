@@ -4,13 +4,13 @@ import numpy as np
 import json
 import os
 
-from collections import deque
+from collections import deque, OrderedDict
 from gym.spaces import Box, Discrete
 from copy import deepcopy
 
 from mime.agent.agent import Agent
 
-SUPPORTED_MIME_ENVS = 'UR5-BowlEnv-v0', 'UR5-BowlCamEnv-v0'
+SUPPORTED_MIME_ENVS = 'UR5-BowlEnv-v0', 'UR5-BowlCamEnv-v0', 'UR5-SaladEnv-v0'
 
 class MiMEEnv(object):
     def __init__(self, env_name, config, id=0):
@@ -25,8 +25,6 @@ class MiMEEnv(object):
         self.num_frames = 3  # use last 3 depth maps as an observation for BowlCamEnv
         self.observation_type = vars(config).get('input_type', 'depth')
         self.last_observations = deque(maxlen=self.num_frames)
-        # # TODO: implement the deque for non use_bcrl_setup
-        # assert self.timescale >= self.num_frames  # the other case is not implemented yet
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
@@ -50,7 +48,6 @@ class MiMEEnv(object):
         infos_path = os.path.join(checkpoint_dir, 'info.json')
         stats = json.load(open(infos_path, 'r'))['statistics'][0]
         # get network dataset statistics
-        # keys_action = ['joint_velocity', 'linear_velocity', 'angular_velocity']
         mean, std = {}, {}
         for action_key in self.action_keys:
             mean[action_key], std[action_key] = stats['action'][action_key]
@@ -60,7 +57,11 @@ class MiMEEnv(object):
     def observation_space(self):
         if self.env_name == 'UR5-BowlEnv-v0':
             return Box(-np.inf, np.inf, (19,), dtype=np.float)
-        elif self.env_name == 'UR5-BowlCamEnv-v0':
+        elif self.env_name == 'UR5-SaladEnv-v0':
+            num_cups, num_drops = self.env.unwrapped.scene._n_cups, self.env.unwrapped.scene._num_drops
+            num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
+            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
+        elif 'Cam' in self.env_name:
             if self.observation_type == 'depth':
                 observation_dim = self.num_frames * 1
             elif self.observation_type == 'rgbd':
@@ -89,18 +90,25 @@ class MiMEEnv(object):
         return obs
 
     def _obs_dict_to_numpy(self, observs):
-        if self.env_name == 'UR5-BowlEnv-v0':
+        if 'Cam' not in self.env_name:
             if isinstance(observs, dict):
                 # after reset
                 obs = observs
             else:
                 # after any step
                 obs = observs[-1]
-            observation = (obs['tool_position'] + obs['linear_velocity'] + (obs['grip_velocity'],) +
-                           obs['cube_position'] + obs['bowl_position'] +
-                           tuple(obs['distance_to_cube']) + tuple(obs['distance_to_bowl']))
-            observation = np.array(observation)
-        elif self.env_name == 'UR5-BowlCamEnv-v0':
+            observation = np.array([])
+            obs_sorted = OrderedDict(sorted(obs.items(), key=lambda t: t[0]))
+            for obs_key, obs_value in obs_sorted.items():
+                if obs_key != 'skill':
+                    if isinstance(obs_value, (int, float)):
+                        obs_value = [obs_value]
+                    elif isinstance(obs_value, np.ndarray):
+                        obs_value = obs_value.flatten()
+                    elif isinstance(obs_value, list) and isinstance(obs_value[0], np.ndarray):
+                        obs_value = np.concatenate(obs_value)
+                    observation = np.concatenate((observation, obs_value))
+        else:
             # TODO: refactor this to use a single function
             if not self.use_bcrl_setup:
                 if isinstance(observs, dict):
@@ -132,7 +140,7 @@ class MiMEEnv(object):
             elif action_key in ('linear_velocity', 'angular_velocity'):
                 action_dict[action_key] = [0] * 3
             elif action_key == 'joint_velocity':
-                action_dict[action_key] = [0] * 7
+                action_dict[action_key] = [0] * 6
             else:
                 raise ValueError('Unknown action_key = {}'.format(action_key))
         return action_dict
@@ -157,26 +165,30 @@ class MiMEEnv(object):
         return action_dict
 
     def _print_action(self, action):
-        if self.use_bcrl_setup:
-            # do not print the environment actions
-            return
-        if action == 0:
-            print('master action: go to cube and release')
-        elif action == 1:
-            print('master action: go down and grasp')
-        elif action == 2:
-            print('master action: go up')
-        elif action == 3:
-            print('master action: go to bowl and release')
+        if not self.use_bcrl_setup:
+            print('master action: {}'.format(action))
+        # in bcrl setup we do not print the environment actions
+
+    def _filter_action(self, action):
+        # the scripts of the mime env seems to always return both IK and joints velocities
+        # we filter the action depending on the action_space of the mime environment
+        action_filtered = {}
+        for action_key, action_value in action.items():
+            if action_key in self.env.action_space.spaces.keys():
+                action_filtered[action_key] = action_value
+        return action_filtered
 
     def _scripted_step(self, action):
-        action_scripts = self.env.unwrapped.scene.script_subtask(action)
-        action_chain = itertools.chain(*action_scripts)
+        action_chain = self.env.unwrapped.scene.script_subtask(action)
+        if not isinstance(action_chain, itertools.chain):
+            action_chain = itertools.chain(*action_chain)
         action_dict = self._get_null_action_dict()
         action_dict_null = deepcopy(action_dict)
         observs, reward = [], 0
+        # print('RL action = {}'.format(action))
         for _ in range(self.timescale):
-            action_dict.update(next(action_chain, action_dict_null))
+            action_update = self._filter_action(next(action_chain, action_dict_null))
+            action_dict.update(action_update)
             obs, rew_step, done, info = self.env.step(action_dict)
             observs.append(obs)
             reward += rew_step
