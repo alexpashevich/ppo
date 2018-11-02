@@ -121,9 +121,6 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
         eval_envs = make_vec_envs(
             args.env_name, args.seed + args.num_processes, args.num_processes,
             args.gamma, args.add_timestep, device, True, env_config=args)
-    if hasattr(policy.base, 'resnet'):
-        # set the batch norm to the eval mode
-        policy.base.resnet.eval()
 
     vec_norm = get_vec_normalize(eval_envs)
     if vec_norm is not None:
@@ -151,10 +148,10 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
         if not args.use_bcrl_setup:
             obs, reward, done, infos = eval_envs.step(action)
             if env_render is not None:
-                env_render.step(action[:1])
+                env_render.step(action[:1].numpy())
         else:
             obs, reward, done, infos = do_master_step(
-                action, obs, args.timescale, policy, eval_envs)
+                action, obs, args.timescale, policy, eval_envs, env_render)
 
         returns_current, lengths_current = returns_current + reward[:, 0].numpy(), lengths_current + 1
         # append returns of envs that are done (reset)
@@ -164,9 +161,6 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
         returns_current[np.where(done)], lengths_current[np.where(done)] = 0, 0
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
 
-    if hasattr(policy.base, 'resnet'):
-        # set the batch norm to the train mode
-        policy.base.resnet.train()
     return eval_envs, returns_eval, lengths_eval
 
 
@@ -175,7 +169,9 @@ def do_master_step(
     # TODO: do we want to print it? (all the master actions)
     print_master_action = False
     if print_master_action:
-        print('master action = {}'.format(master_action.cpu().numpy()[:, 0]))
+        if hasattr(master_action, 'cpu'):
+            master_action = master_action.cpu().numpy()[:, 0]
+        print('master action = {}'.format(master_action))
     master_reward = 0
     worker_obs = master_obs
     master_done = np.array([False] * master_action.shape[0])
@@ -184,7 +180,7 @@ def do_master_step(
             worker_action = policy.get_worker_action(master_action, worker_obs)
         worker_obs, reward, done, infos = envs.step(worker_action)
         if env_render is not None:
-            env_render.step(worker_action[:1])
+            env_render.step(worker_action[:1].numpy())
         master_reward += reward
         master_done = np.logical_or(master_done, done)
         if done.any() and not done.all():

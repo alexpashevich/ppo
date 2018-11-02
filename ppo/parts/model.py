@@ -21,6 +21,8 @@ class Policy(nn.Module):
         if len(obs_shape) == 3:
             # self.base = CNNBase(obs_shape[0], **base_kwargs)
             self.base = ResnetBase(obs_shape[0], **base_kwargs)
+            # set the eval mode so the behavior of the skills is the same as in BC training
+            self.base.resnet.eval()
         elif len(obs_shape) == 1:
             self.base = MLPBase(obs_shape[0], **base_kwargs)
         else:

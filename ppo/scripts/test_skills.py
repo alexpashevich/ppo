@@ -54,12 +54,12 @@ def _perform_actions(action_sequence, envs, policy, obs, args):
     done_glob = np.array([False] * args.num_processes, dtype=np.bool)
     info_glob = [{}] * args.num_processes
     for action in action_sequence:
-        print('master action = {}'.format(action))
         action = np.array([action for _ in range(args.num_processes)])
         if not args.use_bcrl_setup:
             action = torch.tensor(action)[None]
             _, reward_step, done_step, info_step = envs.step(action)
         else:
+            import pudb; pudb.set_trace()
             obs, reward_step, done_step, info_step = do_master_step(
                 action, obs, args.timescale, policy, envs)
         for env_id, done_before_step in enumerate(done_glob):
@@ -108,15 +108,18 @@ def main():
     for epoch in range(args.num_episodes // args.num_processes):
         reward_sum, done, info = perform_actions(args.action_sequence)
         success = np.count_nonzero(reward_sum > 0)
+        print('epoch success = {}'.format(success))
         episodes_success.append(success)
-        if not done.all() and args.no_report_failures is False:
-            # one of the envs is not done after the sequence of actions
-            print('WARNING [epoch {}]: done = {}, info = {}'.format(epoch, done, info))
-            envs.reset()
+        # TODO: do we need to reset here? wtf the success rate is decreasing over time?
+        envs.reset()
+        # if not done.all() and args.no_report_failures is False:
+        #     # one of the envs is not done after the sequence of actions
+        #     print('WARNING [epoch {}]: done = {}, info = {}'.format(epoch, done, info))
     envs.close()
+    num_episodes_done = args.num_episodes // args.num_processes * args.num_processes
     print('Success rate of {} episodes is {}'.format(
-        args.num_episodes // args.num_processes * args.num_processes,
-        np.mean(episodes_success)))
+        num_episodes_done,
+        np.sum(episodes_success) / num_episodes_done))
 
 
 if __name__ == '__main__':

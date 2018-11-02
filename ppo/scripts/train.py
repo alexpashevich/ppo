@@ -1,10 +1,10 @@
 import os
 import time
+import torch
 import numpy as np
 from collections import deque
 from gym.spaces import Discrete
 
-import torch
 
 import ppo.algo as algo
 import ppo.tools.utils as utils
@@ -15,12 +15,14 @@ from ppo.tools.envs import make_vec_envs
 from ppo.parts.model import Policy, MasterPolicy
 from ppo.parts.storage import RolloutStorage
 
+
 def create_envs(args, device):
     args.render = False
     envs = make_vec_envs(
         args.env_name, args.seed, args.num_processes, args.gamma,
         args.add_timestep, device, False, env_config=args)
     return envs
+
 
 def create_render_env(args, device):
     args.render = True
@@ -31,6 +33,7 @@ def create_render_env(args, device):
         envs.make_env(args.env_name, args.seed + args.num_processes, 0, args.add_timestep, False, args)])
     return env_render_train, env_render_eval
 
+
 def create_policy(args, envs, device, action_space):
     PolicyClass = MasterPolicy if args.use_bcrl_setup else Policy
     policy = PolicyClass(envs.observation_space.shape, action_space, base_kwargs=vars(args))
@@ -38,11 +41,21 @@ def create_policy(args, envs, device, action_space):
         utils.load_from_checkpoint(policy, args.checkpoint_path, device)
     return policy
 
+
 def create_agent(args, policy):
     agent = algo.PPO(
         policy, args.clip_param, args.ppo_epoch, args.num_mini_batch, args.value_loss_coef,
         args.entropy_coef, lr=args.lr, eps=args.eps, max_grad_norm=args.max_grad_norm)
     return agent
+
+
+def _perform_actions(action_sequence, observation, policy, envs, env_render, timescale):
+    for action in action_sequence:
+        master_action_numpy = [[action] for _ in range(observation.shape[0])]
+        master_action = torch.Tensor(master_action_numpy).int()
+        observation, _, _, _ = utils.do_master_step(
+            master_action, observation, timescale, policy, envs, env_render)
+
 
 def main():
     args = get_args()
@@ -96,6 +109,12 @@ def main():
     lengths_current = np.array([0] * args.num_processes, dtype=np.int32)
 
     start = time.time()
+
+    perform_actions = lambda seq: _perform_actions(
+        seq, obs, policy, envs, env_render_train, args.timescale)
+    if args.pudb:
+        # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
+        import pudb; pudb.set_trace()
     for epoch in range(start_epoch, num_updates):
         print('Starting epoch {}'.format(epoch))
         for step in range(num_master_steps_per_update):
@@ -109,10 +128,10 @@ def main():
             if not args.use_bcrl_setup:
                 obs, reward, done, infos = envs.step(action)
                 if env_render_train is not None:
-                    env_render_train.step(action[:1])
+                    env_render_train.step(action[:1].numpy())
             else:
                 obs, reward, done, infos = utils.do_master_step(
-                    action, rollouts.obs[step], args.timescale, policy, envs)
+                    action, rollouts.obs[step], args.timescale, policy, envs, env_render_train)
 
             returns_current, lengths_current = returns_current + reward[:, 0].numpy(), lengths_current+1
             # append returns of envs that are done (reset)
