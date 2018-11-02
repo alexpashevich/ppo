@@ -114,19 +114,12 @@ def load_ob_rms(ob_rms, envs):
         except:
             print('WARNING: did not manage to reuse the normalization statistics')
 
-def close_envs(envs, close_envs_manually):
-    envs.close()
-    if close_envs_manually:
-        for env in envs.venv.venv.envs:
-            env.env.close()
-
-def evaluate(policy, args_train, device, envs, eval_envs, render):
+def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
     args = copy.deepcopy(args_train)
-    args.render = render
-    num_processes = 1 if render else args.num_processes
+    args.render = False
     if eval_envs is None:
         eval_envs = make_vec_envs(
-            args.env_name, args.seed + num_processes, num_processes,
+            args.env_name, args.seed + args.num_processes, args.num_processes,
             args.gamma, args.add_timestep, device, True, env_config=args)
     if hasattr(policy.base, 'resnet'):
         # set the batch norm to the eval mode
@@ -139,11 +132,13 @@ def evaluate(policy, args_train, device, envs, eval_envs, render):
 
     returns_eval, lengths_eval = [], []
     obs = eval_envs.reset()
+    if env_render:
+        env_render.reset()
     eval_recurrent_hidden_states = torch.zeros(
-        num_processes, policy.recurrent_hidden_state_size, device=device)
-    eval_masks = torch.zeros(num_processes, 1, device=device)
-    returns_current = np.array([0] * num_processes, dtype=np.float)
-    lengths_current = np.array([0] * num_processes, dtype=np.float)
+        args.num_processes, policy.recurrent_hidden_state_size, device=device)
+    eval_masks = torch.zeros(args.num_processes, 1, device=device)
+    returns_current = np.array([0] * args.num_processes, dtype=np.float)
+    lengths_current = np.array([0] * args.num_processes, dtype=np.float)
 
     print('Evaluating...')
     while len(returns_eval) < args.num_eval_episodes:
@@ -155,6 +150,8 @@ def evaluate(policy, args_train, device, envs, eval_envs, render):
         # obs, reward, done, infos = eval_envs.step(action)
         if not args.use_bcrl_setup:
             obs, reward, done, infos = eval_envs.step(action)
+            if env_render is not None:
+                env_render.step(action[:1])
         else:
             obs, reward, done, infos = do_master_step(
                 action, obs, args.timescale, policy, eval_envs)
@@ -167,7 +164,6 @@ def evaluate(policy, args_train, device, envs, eval_envs, render):
         returns_current[np.where(done)], lengths_current[np.where(done)] = 0, 0
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
 
-    # close_envs(eval_envs, close_envs_manually=render)
     if hasattr(policy.base, 'resnet'):
         # set the batch norm to the train mode
         policy.base.resnet.train()
@@ -175,7 +171,9 @@ def evaluate(policy, args_train, device, envs, eval_envs, render):
 
 
 def do_master_step(
-        master_action, master_obs, master_timescale, policy, envs, print_master_action=False):
+        master_action, master_obs, master_timescale, policy, envs, env_render=None):
+    # TODO: do we want to print it? (all the master actions)
+    print_master_action = False
     if print_master_action:
         print('master action = {}'.format(master_action.cpu().numpy()[:, 0]))
     master_reward = 0
@@ -185,6 +183,8 @@ def do_master_step(
         with torch.no_grad():
             worker_action = policy.get_worker_action(master_action, worker_obs)
         worker_obs, reward, done, infos = envs.step(worker_action)
+        if env_render is not None:
+            env_render.step(worker_action[:1])
         master_reward += reward
         master_done = np.logical_or(master_done, done)
         if done.any() and not done.all():
@@ -197,7 +197,7 @@ def do_master_step(
 
 def get_device(device):
     assert device in ('cpu', 'cuda'), 'device should be in (cpu, cuda)'
-    if socket.gethostname() == 'gemini':
+    if socket.gethostname() == 'gemini' or not torch.cuda.is_available():
         device = torch.device("cpu")
     else:
         device = torch.device("cuda:0" if device == 'cuda' else "cpu")

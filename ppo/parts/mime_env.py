@@ -210,9 +210,10 @@ class MiMEEnv(object):
         if self._render:
             self._print_action(action)
         if not self.use_bcrl_setup:
-            return self._scripted_step(action)
+            observation_tuple = self._scripted_step(action)
         else:
-            return self._bcrl_step(action)
+            observation_tuple = self._bcrl_step(action)
+        return observation_tuple
 
     def reset(self):
         if self._render:

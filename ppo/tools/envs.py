@@ -37,16 +37,8 @@ def make_env(env_id, seed, rank, add_timestep, allow_early_resets, env_config):
 
 def make_vec_envs(env_name, seed, num_processes, gamma, add_timestep,
                   device, allow_early_resets, num_frame_stack=None, env_config=None):
-    if isinstance(seed, int):
-        # train and eval envs case
-        envs = [make_env(env_name, seed, i, add_timestep, allow_early_resets, env_config)
-                for i in range(num_processes)]
-    else:
-        # render envs case
-        seed_list = seed
-        envs = [make_env(env_name, env_seed, 0, add_timestep, allow_early_resets, env_config)
-                for env_seed in seed_list]
-
+    envs = [make_env(env_name, seed, i, add_timestep, allow_early_resets, env_config)
+            for i in range(num_processes)]
 
     if len(envs) > 1:
         envs = SubprocVecEnv(envs)

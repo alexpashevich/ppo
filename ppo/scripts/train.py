@@ -8,6 +8,7 @@ import torch
 
 import ppo.algo as algo
 import ppo.tools.utils as utils
+import ppo.tools.envs as envs
 import ppo.tools.log as log
 from ppo.scripts.arguments import get_args
 from ppo.tools.envs import make_vec_envs
@@ -23,9 +24,12 @@ def create_envs(args, device):
 
 def create_render_env(args, device):
     args.render = True
-    return make_vec_envs(
-        args.env_name, [args.seed, args.seed + args.num_processes], 1, args.gamma,
-        args.add_timestep, device, False, env_config=args)
+    from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+    env_render_train = SubprocVecEnv([
+        envs.make_env(args.env_name, args.seed, 0, args.add_timestep, False, args)])
+    env_render_eval = SubprocVecEnv([
+        envs.make_env(args.env_name, args.seed + args.num_processes, 0, args.add_timestep, False, args)])
+    return env_render_train, env_render_eval
 
 def create_policy(args, envs, device, action_space):
     PolicyClass = MasterPolicy if args.use_bcrl_setup else Policy
@@ -58,6 +62,7 @@ def main():
     envs = create_envs(args, device)
     eval_envs = None
     # render_envs = create_render_env(args, device) if render else None
+    env_render_train, env_render_eval = create_render_env(args, device) if render else (None, None)
     # create the policy
     # TODO: refactor this later
     action_space = Discrete(args.num_skills) if args.use_bcrl_setup else envs.action_space
@@ -80,6 +85,8 @@ def main():
         action_space, policy.recurrent_hidden_state_size)
 
     obs = envs.reset()
+    if env_render_train:
+        env_render_train.reset()
     rollouts.obs[0].copy_(obs)
     rollouts.to(device)
 
@@ -98,8 +105,11 @@ def main():
                     rollouts.obs[step], rollouts.recurrent_hidden_states[step], rollouts.masks[step])
 
             # Observe reward and next obs
+            # TODO: refactor
             if not args.use_bcrl_setup:
                 obs, reward, done, infos = envs.step(action)
+                if env_render_train is not None:
+                    env_render_train.step(action[:1])
             else:
                 obs, reward, done, infos = utils.do_master_step(
                     action, rollouts.obs[step], args.timescale, policy, envs)
@@ -137,7 +147,7 @@ def main():
         is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
         if (args.eval_interval and len(returns_train) > 1 and is_eval_time):
             eval_envs, returns_eval, lengths_eval = utils.evaluate(
-                policy, args, device, envs, eval_envs, render)
+                policy, args, device, envs, eval_envs, env_render_eval)
                 # policy, args, device, envs, eval_envs)
             log.log_eval(returns_eval, lengths_eval, total_num_env_steps)
             if epoch % (args.save_interval * args.eval_interval) == 0:
