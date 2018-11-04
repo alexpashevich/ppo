@@ -215,6 +215,10 @@ class MiMEEnv(object):
             observation_tuple = self._scripted_step(action)
         else:
             observation_tuple = self._bcrl_step(action)
+        if self._render:
+            failure_message = observation_tuple[3]['failure_message']
+            if len(failure_message) > 0:
+                print('env[{}] failed: {}'.format(self._id, failure_message))
         return observation_tuple
 
     def reset(self):

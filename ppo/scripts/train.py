@@ -50,17 +50,21 @@ def create_agent(args, policy):
     return agent
 
 
-def _perform_actions(action_sequence, observation, policy, envs, env_render, args):
+def _perform_actions(action_sequence, policy, envs, env_render, args):
+    observation = envs.reset()
+    if env_render:
+        env_render.reset()
     for action in action_sequence:
         master_action_numpy = [[action] for _ in range(observation.shape[0])]
         master_action = torch.Tensor(master_action_numpy).int()
         if not args.use_bcrl_setup:
-            observation, _, _, _ = envs.step(master_action)
+            observation, reward, _, _ = envs.step(master_action)
             if env_render is not None:
                 env_render.step(master_action[:1].numpy())
         else:
-            observation, _, _, _ = utils.do_master_step(
+            observation, reward, _, _ = utils.do_master_step(
                 master_action, observation, args.timescale, policy, envs, env_render)
+        print('reward = {}'.format(reward[:, 0]))
 
 
 def main():
@@ -113,7 +117,7 @@ def main():
     start = time.time()
 
     perform_actions = lambda seq: _perform_actions(
-        seq, obs, policy, envs, env_render_train, args)
+        seq, policy, envs, env_render_train, args)
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
         import pudb; pudb.set_trace()
