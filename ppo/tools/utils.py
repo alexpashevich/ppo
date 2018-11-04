@@ -8,6 +8,7 @@ import socket
 import numpy as np
 
 from ppo.tools.envs import VecNormalize, make_vec_envs
+import ppo.tools.stats as stats
 
 # Get a render function
 def get_render_func(venv):
@@ -127,18 +128,16 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
         vec_norm.eval()
         vec_norm.ob_rms = get_vec_normalize(envs).ob_rms
 
-    returns_eval, lengths_eval = [], []
     obs = eval_envs.reset()
     if env_render:
         env_render.reset()
     eval_recurrent_hidden_states = torch.zeros(
         args.num_processes, policy.recurrent_hidden_state_size, device=device)
     eval_masks = torch.zeros(args.num_processes, 1, device=device)
-    returns_current = np.array([0] * args.num_processes, dtype=np.float)
-    lengths_current = np.array([0] * args.num_processes, dtype=np.float)
+    stats_global, stats_local = stats.init(args, eval=True)
 
     print('Evaluating...')
-    while len(returns_eval) < args.num_eval_episodes:
+    while len(stats_global['return']) < args.num_eval_episodes:
         with torch.no_grad():
             _, action, _, eval_recurrent_hidden_states = policy.act(
                 obs, eval_recurrent_hidden_states, eval_masks, deterministic=True)
@@ -153,21 +152,16 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
             obs, reward, done, infos = do_master_step(
                 action, obs, args.timescale, policy, eval_envs, env_render)
 
-        returns_current, lengths_current = returns_current + reward[:, 0].numpy(), lengths_current + 1
-        # append returns of envs that are done (reset)
-        returns_eval.extend(returns_current[np.where(done)])
-        lengths_eval.extend(lengths_current[np.where(done)])
-        # zero out returns of the envs that are done (reset)
-        returns_current[np.where(done)], lengths_current[np.where(done)] = 0, 0
+        stats_global, stats_local = stats.update(stats_global, stats_local, reward, done, infos, args)
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
 
-    return eval_envs, returns_eval, lengths_eval
+    return eval_envs, stats_global
 
 
 def do_master_step(
         master_action, master_obs, master_timescale, policy, envs, env_render=None):
     # TODO: do we want to print it? (all the master actions)
-    print_master_action = False
+    print_master_action = True
     if print_master_action:
         if hasattr(master_action, 'cpu'):
             master_action = master_action.cpu().numpy()[:, 0]

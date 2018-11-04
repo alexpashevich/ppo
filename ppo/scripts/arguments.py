@@ -19,6 +19,8 @@ def get_args():
                         help='how many training CPU processes to use (default: 16)')
     parser.add_argument('--num-frames', type=int, default=30e7,
                         help='number of frames to train (default: 10e6)')
+    parser.add_argument('--max-length', type=int, default=None,
+                        help='episodes max length')
     parser.add_argument('--device', type=str, default='cuda',
                         help='which device to run the experiments on: cuda or cpu')
     parser.add_argument('--add-timestep', action='store_true', default=False,
@@ -80,7 +82,7 @@ def get_args():
     parser.add_argument('--timestamp', type=str,
                         default=datetime.datetime.now().strftime('%Y%m%dT%H%M%S'),
                         help='timestep for a given training')
-    parser.add_argument('--log-interval', type=int, default=5,
+    parser.add_argument('--log-interval', type=int, default=1,
                         help='log interval, one log per n updates (default: 10)')
     parser.add_argument('--save-interval', type=int, default=5,
                         help='save interval, one save per n updates (default: 100)')

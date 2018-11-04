@@ -49,10 +49,11 @@ def get_args():
     args.use_bcrl_setup = not args.no_use_bcrl_setup
     return args
 
-def _perform_actions(action_sequence, envs, policy, obs, args):
-    reward_glob = np.array([0] * args.num_processes, dtype=np.float)
-    done_glob = np.array([False] * args.num_processes, dtype=np.bool)
-    info_glob = [{}] * args.num_processes
+def _perform_actions(action_sequence, envs, policy, args):
+    reward_glob = np.array([0 for _ in range(args.num_processes)], dtype=np.float)
+    done_glob = np.array([False for _ in range(args.num_processes)], dtype=np.bool)
+    info_glob = [{} for _ in range(args.num_processes)]
+    obs = envs.reset()
     for action in action_sequence:
         action = np.array([action for _ in range(args.num_processes)])
         if not args.use_bcrl_setup:
@@ -79,8 +80,7 @@ def main():
     device = get_device(args.device)
     set_up_training(args)
     envs = make_vec_envs(
-        args.env_name, args.seed, args.num_processes, 0.99, False, device, True, env_config=args)
-    obs = envs.reset()
+        args.env_name, args.seed, args.num_processes, 1.0, False, device, True, env_config=args)
     policy = None
     if args.num_episodes % args.num_processes != 0:
         print('Warning: num_episodes can not be divided by num_processes: I may run less episodes')
@@ -100,17 +100,16 @@ def main():
         policy.base.resnet.eval()
 
     episodes_success = []
-    perform_actions = lambda seq: _perform_actions(seq, envs, policy, obs, args)
+    # perform_actions = lambda seq: _perform_actions(seq, envs, policy, args)
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
         import pudb; pudb.set_trace()
     for epoch in range(args.num_episodes // args.num_processes):
-        reward_sum, done, info = perform_actions(args.action_sequence)
+        reward_sum, done, info = _perform_actions(args.action_sequence, envs, policy, args)
         success = np.count_nonzero(reward_sum > 0)
         print('epoch success = {}'.format(success))
         episodes_success.append(success)
         # TODO: do we need to reset here? wtf the success rate is decreasing over time?
-        envs.reset()
         # if not done.all() and args.no_report_failures is False:
         #     # one of the envs is not done after the sequence of actions
         #     print('WARNING [epoch {}]: done = {}, info = {}'.format(epoch, done, info))

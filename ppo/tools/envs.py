@@ -46,10 +46,8 @@ def make_vec_envs(env_name, seed, num_processes, gamma, add_timestep,
         envs = DummyVecEnv(envs)
 
     if envs.observation_space.shape and len(envs.observation_space.shape) == 1:
-        if gamma is None:
-            envs = VecNormalize(envs, ret=False)
-        else:
-            envs = VecNormalize(envs, gamma=gamma)
+        envs = VecNormalize(envs, ret=False)
+        # envs = VecNormalize(envs, gamma=gamma)
 
     envs = VecPyTorch(envs, device)
 
