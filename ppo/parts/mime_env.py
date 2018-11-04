@@ -10,7 +10,7 @@ from copy import deepcopy
 
 from mime.agent.agent import Agent
 
-SUPPORTED_MIME_ENVS = 'UR5-BowlEnv-v0', 'UR5-BowlCamEnv-v0', 'UR5-SaladEnv-v0'
+SUPPORTED_MIME_ENVS = 'UR5-BowlEnv-v0', 'UR5-BowlCamEnv-v0', 'UR5-SaladEnv-v0', 'UR5-SaladCamEnv-v0'
 
 class MiMEEnv(object):
     def __init__(self, env_name, config, id=0):
@@ -23,6 +23,7 @@ class MiMEEnv(object):
         self.num_skills = vars(config).get('num_skills', 4)
         self.timescale = vars(config).get('timescale', 25)
         self._render = vars(config).get('render', False) and id == 0
+        self._skip_unused_obs = vars(config).get('skip_unused_obs', False)
         self._id = id
         self.num_frames = 3  # use last 3 depth maps as an observation for BowlCamEnv
         self.observation_type = vars(config).get('input_type', 'depth')
@@ -188,15 +189,29 @@ class MiMEEnv(object):
         action_dict_null = deepcopy(action_dict)
         observs, reward = [], 0
         # print('RL action = {}'.format(action))
-        for _ in range(self.timescale):
+        if self._skip_unused_obs:
+            # turn off the rendering
+            self.env.unwrapped._observe = False
+        for timestep in range(self.timescale):
+            if self._skip_unused_obs and timestep == self.timescale - self.num_frames:
+                # turn on the rendering for the last 3 frames
+                self.env.unwrapped._observe = True
             action_update = self._filter_action(next(action_chain, action_dict_null))
             action_dict.update(action_update)
             obs, rew_step, done, info = self.env.step(action_dict)
             observs.append(obs)
             reward += rew_step
             if done:
+                if self._skip_unused_obs and timestep < self.timescale - 1:
+                    # oh shit, we did not render all the observations!
+                    obs = self.env.unwrapped._get_observation(self.env.unwrapped.scene)
+                    for i in range(min(self.timescale - timestep - 1, self.num_frames)):
+                        observs.append(obs)
                 break
         observation = self._obs_dict_to_numpy(observs)
+        if self._skip_unused_obs:
+            # turn on the rendering again
+            self.env.unwrapped._observe = True
         return observation, reward, done, info
 
     def _bcrl_step(self, action):

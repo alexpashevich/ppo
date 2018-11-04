@@ -62,11 +62,13 @@ def get_args():
                         help='master timescale')
     parser.add_argument('--num-skills', type=int, default=4,
                         help='number of skills')
+    parser.add_argument('--no-skip-unused-obs', action='store_true', default=False,
+                        help='whether to render the observations not used by master (scripted setup)')
+    # BC skills settings (should match the BC checkpoint)
     parser.add_argument('--checkpoint-path', type=str, default=None,
                         help='if specified, load the networks weights from the file')
-    parser.add_argument('--archi', type=str, default='resnet18',
+    parser.add_argument('--archi', type=str, default='resnet18_featbranch',
                         help='which architecture to use (from bc.net.architectures.resnet)')
-    # BC skills settings (should match the BC checkpoint)
     parser.add_argument('--dim-skill-action', type=int, default=5,
                         help='dimensionality of a skill action')
     parser.add_argument('--num-skill-action-pred', type=int, default=1,
@@ -89,5 +91,6 @@ def get_args():
 
     args = parser.parse_args()
     args.recurrent_policy = False  # turn off recurrent policies support
+    args.skip_unused_obs = not args.no_skip_unused_obs  # only works for the scripted setup
 
     return args
