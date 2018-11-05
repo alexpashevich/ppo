@@ -50,10 +50,10 @@ def create_agent(args, policy):
     return agent
 
 
-def _perform_actions(action_sequence, policy, envs, env_render, args):
-    observation = envs.reset()
-    if env_render:
-        env_render.reset()
+def _perform_actions(action_sequence, observation, policy, envs, env_render, args):
+    # observation = envs.reset()
+    # if env_render:
+    #     env_render.reset()
     for action in action_sequence:
         master_action_numpy = [[action] for _ in range(observation.shape[0])]
         master_action = torch.Tensor(master_action_numpy).int()
@@ -116,8 +116,8 @@ def main():
     stats_global, stats_local = stats.init(args)
     start = time.time()
 
-    perform_actions = lambda seq: _perform_actions(
-        seq, policy, envs, env_render_train, args)
+    # perform_actions = lambda seq: _perform_actions(
+    #     seq, policy, envs, env_render_train, args)
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
         import pudb; pudb.set_trace()
@@ -170,8 +170,8 @@ def main():
             eval_envs, stats_eval = utils.evaluate(
                 policy, args, device, envs, eval_envs, env_render_eval)
             log.log_eval(total_num_env_steps, stats_eval)
-            if epoch % (args.save_interval * args.eval_interval) == 0:
-                log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
+            # if epoch % (args.save_interval * args.eval_interval) == 0:
+            log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
 
 
 if __name__ == "__main__":
