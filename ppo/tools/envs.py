@@ -51,12 +51,10 @@ def make_vec_envs(env_name, seed, num_processes, gamma, add_timestep,
 
     envs = VecPyTorch(envs, device)
 
-    if num_frame_stack is not None:
-        envs = VecPyTorchFrameStack(envs, num_frame_stack, device)
-    elif envs.observation_space.shape and len(envs.observation_space.shape) == 3:
-        if 'UR5' not in env_name:
-            # we will stack the frames manually for MiME
-            envs = VecPyTorchFrameStack(envs, 4, device)
+    if 'Cam' in env_name and env_config.use_bcrl_setup:
+        envs = VecPyTorchFrameStack(envs, 3, device)
+    # elif envs.observation_space.shape and len(envs.observation_space.shape) == 3:
+    #     envs = VecPyTorchFrameStack(envs, 4, device)
 
     return envs
 
@@ -168,14 +166,18 @@ class VecPyTorchFrameStack(VecEnvWrapper):
             self.stacked_obs[:, self.shape_dim0:]
         for (i, new) in enumerate(news):
             if new:
-                self.stacked_obs[i] = 0
+                # we do not want zeros, we want the first observation to be tiled
+                # self.stacked_obs[i] = 0
+                self.stacked_obs[i] = obs[i].repeat(self.nstack, 1, 1)
         self.stacked_obs[:, -self.shape_dim0:] = obs
         return self.stacked_obs, rews, news, infos
 
     def reset(self):
         obs = self.venv.reset()
         self.stacked_obs.zero_()
-        self.stacked_obs[:, -self.shape_dim0:] = obs
+        # we do not want zeros, we want the first observation to be tiled
+        # self.stacked_obs[:, -self.shape_dim0:] = obs
+        self.stacked_obs = obs.repeat(1, self.nstack, 1, 1)
         return self.stacked_obs
 
     def close(self):

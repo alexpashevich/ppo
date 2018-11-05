@@ -8,11 +8,10 @@ from gym.spaces import Discrete
 
 import ppo.algo as algo
 import ppo.tools.utils as utils
-import ppo.tools.envs as envs
 import ppo.tools.log as log
 import ppo.tools.stats as stats
 from ppo.scripts.arguments import get_args
-from ppo.tools.envs import make_vec_envs
+from ppo.tools.envs import make_vec_envs, make_env
 from ppo.parts.model import Policy, MasterPolicy
 from ppo.parts.storage import RolloutStorage
 
@@ -29,9 +28,9 @@ def create_render_env(args, device):
     args.render = True
     from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
     env_render_train = SubprocVecEnv([
-        envs.make_env(args.env_name, args.seed, 0, args.add_timestep, False, args)])
+        make_env(args.env_name, args.seed, 0, args.add_timestep, False, args)])
     env_render_eval = SubprocVecEnv([
-        envs.make_env(args.env_name, args.seed + args.num_processes, 0, args.add_timestep, False, args)])
+        make_env(args.env_name, args.seed + args.num_processes, 0, args.add_timestep, False, args)])
     return env_render_train, env_render_eval
 
 
@@ -136,8 +135,10 @@ def main():
                 if env_render_train is not None:
                     env_render_train.step(action[:1].numpy())
             else:
+                # start_step = time.time()
                 obs, reward, done, infos = utils.do_master_step(
                     action, rollouts.obs[step], args.timescale, policy, envs, env_render_train)
+                # print('step_time = {}'.format(time.time() - start_step))
 
             stats_global, stats_local = stats.update(
                 stats_global, stats_local, reward, done, infos, args)

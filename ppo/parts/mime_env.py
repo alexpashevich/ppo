@@ -4,11 +4,13 @@ import numpy as np
 import json
 import os
 
-from collections import deque, OrderedDict
+from collections import OrderedDict
 from gym.spaces import Box, Discrete
 from copy import deepcopy
+from torchvision import transforms
 
 from mime.agent.agent import Agent
+
 
 SUPPORTED_MIME_ENVS = 'UR5-BowlEnv-v0', 'UR5-BowlCamEnv-v0', 'UR5-SaladEnv-v0', 'UR5-SaladCamEnv-v0'
 
@@ -25,9 +27,9 @@ class MiMEEnv(object):
         self._render = vars(config).get('render', False) and id == 0
         self._skip_unused_obs = vars(config).get('skip_unused_obs', False)
         self._id = id
-        self.num_frames = 3  # use last 3 depth maps as an observation for BowlCamEnv
+        self.use_bcrl_setup = vars(config).get('use_bcrl_setup', False)
+        self.num_frames = 1 if self.use_bcrl_setup else 3
         self.observation_type = vars(config).get('input_type', 'depth')
-        self.last_observations = deque(maxlen=self.num_frames)
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
@@ -37,7 +39,6 @@ class MiMEEnv(object):
             scene = self.env.unwrapped.scene
             scene.renders(True)
         # bcrl related stuff
-        self.use_bcrl_setup = vars(config).get('use_bcrl_setup', False)
         self.dim_skill_action = vars(config).get('dim_skill_action', 5)
 
         self.action_keys = list(self.env.action_space.spaces.keys())
@@ -45,6 +46,11 @@ class MiMEEnv(object):
             # load action statistics for the denormalization
             self.action_mean, self.action_std,  = self._load_action_stats(
                 config.checkpoint_path)
+
+        self.image_transform = transforms.Compose([transforms.ToPILImage(),
+                                                   transforms.Resize([224, 224]),
+                                                   transforms.ToTensor(),
+                                                   transforms.Normalize((0.5, 0.5), (0.5, 0.5))])
 
     def _load_action_stats(self, checkpoint_path):
         checkpoint_dir = '/'.join(checkpoint_path.split('/')[:-1])
@@ -71,7 +77,8 @@ class MiMEEnv(object):
                 observation_dim = self.num_frames * 4
             else:
                 raise NotImplementedError
-            return Box(-np.inf, np.inf, (observation_dim, 240, 320), dtype=np.float)
+            # return Box(-np.inf, np.inf, (observation_dim, 240, 320), dtype=np.float)
+            return Box(-np.inf, np.inf, (observation_dim, 224, 224), dtype=np.float)
 
     @property
     def action_space(self):
@@ -91,6 +98,7 @@ class MiMEEnv(object):
         else:
             raise NotImplementedError
         return obs
+
 
     def _obs_dict_to_numpy(self, observs):
         if 'Cam' not in self.env_name:
@@ -112,27 +120,27 @@ class MiMEEnv(object):
                         obs_value = np.concatenate(obs_value)
                     observation = np.concatenate((observation, obs_value))
         else:
-            # TODO: refactor this to use a single function
             if not self.use_bcrl_setup:
                 if isinstance(observs, dict):
-                    observation = np.tile(observs['depth0'], 3).reshape((240, 320, self.num_frames))
-                    # observation: 240 x 320 x 3
-                    observation = np.moveaxis(observation, 2, 0)
-                    # observation: 3 x 240 x 320
+                    obs_big = self._extract_obs(observs)
+                    obs_big = np.tile(obs_big, 3).reshape((240, 320, -1))
+                    # obs_big: 240 x 320 x 3(12)
+                    obs_big = np.moveaxis(obs_big, 2, 0)
+                    # obs_big: 3(12) x 240 x 320
                 else:
-                    observation = np.array([obs['depth0'] for obs in observs[-self.num_frames:]])
-                    # observation: 3 x 240 x 320
+                    obs_big = np.concatenate([
+                        self._extract_obs(obs) for obs in observs[-self.num_frames:]])
+                    # obs_big: 3(12) x 240 x 320
             else:
-                # observs is always a dictionary with the last observation
-                obs = self._extract_obs(observs)
-                # append: up to 4 times if empty, we don't care and 1 time otherwise
-                num_appends = 1 + self.num_frames - len(self.last_observations)
-                for _ in range(num_appends):
-                    self.last_observations.append(obs)
-                observation = np.array(self.last_observations)
-                # observation: 3 x (1 or 4) x 240 x 320
-                observation = observation.reshape((-1, observation.shape[2], observation.shape[3]))
-                # observation: (3 or 12) x 240 x 320
+                obs_big = self._extract_obs(observs)
+            observation = []
+            for obs_channel in obs_big:
+                # 1) transforms.ToPILImage expects 3D tensor, so we use [None]
+                # 2) transforms.ToPILImage expects image between 0. and 1.
+                # 3) we remove the extra dim with [0] afterwards
+                obs_channel_float = obs_channel[..., None].astype('float32') / 255
+                observation.append(self.image_transform(obs_channel_float)[0].numpy())
+            observation = np.stack(observation)
         return observation
 
     def _get_null_action_dict(self):
@@ -241,7 +249,6 @@ class MiMEEnv(object):
     def reset(self):
         if self._render:
             print('env is reset')
-        self.last_observations.clear()
         obs = self.env.reset()
         return self._obs_dict_to_numpy(obs)
 
