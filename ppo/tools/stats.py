@@ -18,6 +18,7 @@ def init(args, eval=False):
                     'fail': deque(maxlen=100),
                     'fail_joints': deque(maxlen=100),
                     'fail_workspace': deque(maxlen=100),
+                    'fail_objects': deque(maxlen=100),
                     'success': success_deque}
     stats_local = {'return': np.array([0] * args.num_processes, dtype=np.float32),
                    'length': np.array([0] * args.num_processes, dtype=np.int32)}
@@ -39,9 +40,11 @@ def update(stats_g, stats_l, reward, done, infos, args):
     num_fail = int(np.sum([len(m) > 0 for m in fail_messages_done]))
     num_fail_joints = int(np.sum(['Joint' in m for m in fail_messages_done]))
     num_fail_workspace = int(np.sum(['Workspace' in m for m in fail_messages_done]))
+    num_fail_objects = int(np.sum(['All the objects' in m for m in fail_messages_done]))
     stats_g['fail'].extend([1] * num_fail + [0] * (num_done - num_fail))
     stats_g['fail_joints'].extend([1] * num_fail_joints + [0] * (num_done - num_fail_joints))
     stats_g['fail_workspace'].extend([1] * num_fail_workspace + [0] * (num_done - num_fail_workspace))
+    stats_g['fail_objects'].extend([1] * num_fail_objects + [0] * (num_done - num_fail_objects))
     # zero out returns of the envs that are done (reset or fail)
     stats_l['length'][np.where(done)] = 0
     stats_l['return'][np.where(done)] = 0

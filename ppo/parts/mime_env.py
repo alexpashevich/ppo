@@ -187,7 +187,7 @@ class MiMEEnv(object):
             action_chain = itertools.chain(*action_chain)
         action_dict = self._get_null_action_dict()
         action_dict_null = deepcopy(action_dict)
-        observs, reward = [], 0
+        observs, rewards = [], []
         # print('RL action = {}'.format(action))
         if self._skip_unused_obs:
             # turn off the rendering
@@ -200,7 +200,7 @@ class MiMEEnv(object):
             action_dict.update(action_update)
             obs, rew_step, done, info = self.env.step(action_dict)
             observs.append(obs)
-            reward += rew_step
+            rewards.append(rew_step)
             if done:
                 if self._skip_unused_obs and timestep < self.timescale - 1:
                     # oh shit, we did not render all the observations!
@@ -212,6 +212,8 @@ class MiMEEnv(object):
         if self._skip_unused_obs:
             # turn on the rendering again
             self.env.unwrapped._observe = True
+        # reward max pooling (mostly for the failure happening after we pour the second cup)
+        reward = max(rewards)
         return observation, reward, done, info
 
     def _bcrl_step(self, action):
