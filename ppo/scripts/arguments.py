@@ -88,6 +88,8 @@ def get_args():
                         help='log interval, one log per n updates (default: 10)')
     parser.add_argument('--save-interval', type=int, default=5,
                         help='save interval, one save per n updates (default: 100)')
+    parser.add_argument('--save-gifs', action='store_true', default=False,
+                        help='whether to save the gifs of the evaluation environments')
 
     args = parser.parse_args()
     args.recurrent_policy = False  # turn off recurrent policies support

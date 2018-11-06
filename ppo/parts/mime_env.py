@@ -138,8 +138,8 @@ class MiMEEnv(object):
                 # 1) transforms.ToPILImage expects 3D tensor, so we use [None]
                 # 2) transforms.ToPILImage expects image between 0. and 1.
                 # 3) we remove the extra dim with [0] afterwards
-                obs_channel_float = obs_channel[..., None].astype('float32') / 255
-                observation.append(self.image_transform(obs_channel_float)[0].numpy())
+                obs_transformed = self.image_transform(obs_channel[..., None])[0].numpy()
+                observation.append(obs_transformed)
             observation = np.stack(observation)
         return observation
 

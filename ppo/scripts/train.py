@@ -2,7 +2,6 @@ import os
 import time
 import torch
 import numpy as np
-from collections import deque
 from gym.spaces import Discrete
 
 
@@ -10,6 +9,7 @@ import ppo.algo as algo
 import ppo.tools.utils as utils
 import ppo.tools.log as log
 import ppo.tools.stats as stats
+import ppo.tools.gifs as gifs
 from ppo.scripts.arguments import get_args
 from ppo.tools.envs import make_vec_envs, make_env
 from ppo.parts.model import Policy, MasterPolicy
@@ -121,11 +121,6 @@ def main():
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
         import pudb; pudb.set_trace()
     for epoch in range(start_epoch, num_updates):
-        # Eval anv for test
-        print('Test evaluation')
-        eval_envs, returns_eval, lengths_eval = utils.evaluate(
-                policy, args, device, envs, eval_envs, env_render_eval)
-                
         print('Starting epoch {}'.format(epoch))
         for step in range(num_master_steps_per_update):
             # Sample actions
@@ -173,11 +168,12 @@ def main():
 
         is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
         if (args.eval_interval and len(stats_global['length']) > 1 and is_eval_time):
-            eval_envs, stats_eval = utils.evaluate(
+            eval_envs, stats_eval, gifs_eval = utils.evaluate(
                 policy, args, device, envs, eval_envs, env_render_eval)
             log.log_eval(total_num_env_steps, stats_eval)
-            # if epoch % (args.save_interval * args.eval_interval) == 0:
             log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
+            if gifs_eval:
+                gifs.save(logdir, gifs_eval, epoch)
 
 
 if __name__ == "__main__":
