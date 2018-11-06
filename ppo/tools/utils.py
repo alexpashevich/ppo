@@ -161,7 +161,7 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
 
 def do_master_step(
         master_action, master_obs, master_timescale, policy, envs,
-        env_render=None, print_master_action=True, return_observations=False):
+        env_render=None, print_master_action=False, return_observations=False):
     if print_master_action:
         if hasattr(master_action, 'cpu'):
             master_action = master_action.cpu().numpy()[:, 0]
