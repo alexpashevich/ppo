@@ -166,7 +166,7 @@ def main():
                 total_num_env_steps, start, stats_global, action_loss,
                 value_loss, dist_entropy)
 
-        is_eval_time = (epoch > 0 and epoch % args.eval_interval == 0) or render
+        is_eval_time = (epoch % args.eval_interval == 0) or render
         if (args.eval_interval and len(stats_global['length']) > 1 and is_eval_time):
             eval_envs, stats_eval, gifs_eval = utils.evaluate(
                 policy, args, device, envs, eval_envs, env_render_eval)

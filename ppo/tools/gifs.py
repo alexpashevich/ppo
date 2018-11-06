@@ -36,14 +36,14 @@ def save(logdir_path, gifs_list_of_dict, epoch):
     gifs_dir = os.path.join(all_gifs_dir, 'epoch{}'.format(epoch))
     if not os.path.exists(gifs_dir):
         os.mkdir(gifs_dir)
+    print('Writing the gifs to {}'.format(gifs_dir))
     for idx_gif, gif_dict in enumerate(gifs_list_of_dict):
         frames = gif_dict['frames']
         master_actions = gif_dict['master_actions']
         skill_actions = gif_dict['skill_actions']
-        print('Writing gif {} after epoch {}'.format(idx_gif, epoch))
-        print('Master actions {}'.format(master_actions))
         gif_name = '{:02}.gif'.format(idx_gif)
         videos.write_video(frames, os.path.join(gifs_dir, gif_name))
         np.savez(os.path.join(gifs_dir, '{:02}.npz'.format(idx_gif)),
                  master_actions=master_actions,
                  skill_actions=skill_actions)
+    print('Wrote {} gifs'.format(len(gifs_list_of_dict)))

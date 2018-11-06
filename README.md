@@ -3,11 +3,19 @@
 Make sure that the MiME and the BC repos are in your `$PYTHONPATH`. All the executable scripts are located in `ppo/scripts`.
 
 ## How to run the RL training
-To train you need to run:
+To train you need to run something like:
 ```bash
-python -m ppo.scripts.train --num-mini-batch 4 --num-processes 8 --num-frames-per-update 500 --timescale 40 --entropy-coef 0.05 --value-loss-coef 1 --use-bcrl-setup --logdir {} --checkpoint-path {}
+python -m ppo.scripts.train --env-name UR5-BowlCamEnv-v0 --num-mini-batch 4 --num-processes 8 --max-length 600 --timescale 40 --entropy-coef 0.05 --value-loss-coef 1 --use-bcrl-setup --logdir {} --checkpoint-path {} [--num-skills {} --dim-skill-action {} --num-skill-action-pred {} --archi {}]
 ```
-The training will be done on GPU if it is available. You can render the evaluation environments by setting `--render` but it may takes some time. Use can render the result with the `enjoy.py` script. It will render the environment:
+By default the values are `--num-skills=4 --dim-skill-action=8 --num-skill-action-pred=4 --archi=resnet18_featbranch`.
+
+For a quick check if the training works fine:
+```bash
+python -m ppo.scripts.train --num-mini-batch 2 --num-processes 4 --max-length 100 --timescale 25 --use-bcrl-setup --eval-interval 1 --num-eval-episodes 4 --save-gifs --logdir {} --checkpoint-path {} [--num-skills {} --dim-skill-action {} --num-skill-action-pred {} --archi {}]
+```
+The training will be done on GPU if it is available. You can render both training and evaluation by setting `--render`. This will open an pybullet interface running in a separate process (will not impact the rendering of the other environments).
+
+Use can render the result of the training with the `enjoy.py` script:
 ```bash
 python -m ppo.scripts.enjoy --load-dir {}
 ```

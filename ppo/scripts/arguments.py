@@ -69,12 +69,12 @@ def get_args():
                         help='if specified, load the networks weights from the file')
     parser.add_argument('--archi', type=str, default='resnet18_featbranch',
                         help='which architecture to use (from bc.net.architectures.resnet)')
-    parser.add_argument('--dim-skill-action', type=int, default=5,
+    parser.add_argument('--dim-skill-action', type=int, default=8,
                         help='dimensionality of a skill action')
-    parser.add_argument('--num-skill-action-pred', type=int, default=1,
+    parser.add_argument('--num-skill-action-pred', type=int, default=4,
                         help='number of future actions predicted')
     # evaluation
-    parser.add_argument('--num-eval-episodes', type=int, default=32,
+    parser.add_argument('--num-eval-episodes', type=int, default=16,
                         help='number of episodes to use in evluation')
     parser.add_argument('--eval-interval', type=int, default=10,
                         help='eval interval, one eval per n updates (default: None)')
