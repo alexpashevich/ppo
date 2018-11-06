@@ -8,7 +8,9 @@ import socket
 import numpy as np
 
 from ppo.tools.envs import VecNormalize, make_vec_envs
-import ppo.tools.stats as stats
+
+from PIL import Image
+from bc.utils import videos
 
 # Get a render function
 def get_render_func(venv):
@@ -128,16 +130,26 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
         vec_norm.eval()
         vec_norm.ob_rms = get_vec_normalize(envs).ob_rms
 
+    returns_eval, lengths_eval = [], []
     obs = eval_envs.reset()
     if env_render:
         env_render.reset()
     eval_recurrent_hidden_states = torch.zeros(
         args.num_processes, policy.recurrent_hidden_state_size, device=device)
     eval_masks = torch.zeros(args.num_processes, 1, device=device)
-    stats_global, stats_local = stats.init(args, eval=True)
+    returns_current = np.array([0] * args.num_processes, dtype=np.float)
+    lengths_current = np.array([0] * args.num_processes, dtype=np.float)
+
+    frames = [[] for _ in range(args.num_processes)]
+    skill_actions = [[] for _ in range(args.num_processes)]
+    master_actions = [[] for _ in range(args.num_processes)]
+    idx_video = 0
+    gifs_dir = os.path.join(args.logdir, args.timestamp, 'gifs')
+    if not os.path.exists(gifs_dir):
+        os.mkdir(gifs_dir)
 
     print('Evaluating...')
-    while len(stats_global['return']) < args.num_eval_episodes:
+    while len(returns_eval) < args.num_eval_episodes:
         with torch.no_grad():
             _, action, _, eval_recurrent_hidden_states = policy.act(
                 obs, eval_recurrent_hidden_states, eval_masks, deterministic=True)
@@ -149,30 +161,60 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
             if env_render is not None:
                 env_render.step(action[:1].numpy())
         else:
-            obs, reward, done, infos = do_master_step(
+            stack_obs, stack_act, reward, done, infos = do_master_step(
                 action, obs, args.timescale, policy, eval_envs, env_render)
+            obs = stack_obs[-1]
 
-        stats_global, stats_local = stats.update(stats_global, stats_local, reward, done, infos, args)
+        for obs_skill, act_skill in zip(stack_obs, stack_act):
+            for i, (obs_worker, act_worker) in enumerate(zip(obs_skill, act_skill)):
+                frame = np.array((0.5+obs_worker.cpu().numpy()*0.5)*255, dtype=np.uint8)
+                frames[i].append(frame)
+                skill_actions[i].append(act_worker)
+        for i, action_worker in enumerate(action.cpu().numpy()):
+            master_actions[i].append(action_worker[0])
+
+        idxs_done = np.where(done)[0]
+        for idx in idxs_done:
+            print('Writing video {}'.format(idx_video))
+            print('Master actions {}'.format(master_actions[idx]))
+            gif_name = '{:02}.gif'.format(idx_video)
+            videos.write_video(frames[idx], os.path.join(gifs_dir, gif_name))
+            np.savez(os.path.join(gifs_dir, '{:02}.npz'.format(idx_video)), actions=skill_actions[idx])
+            idx_video += 1
+            frames[idx] = []
+            master_actions[idx] = []
+            skill_actions[idx] = []
+
+        returns_current, lengths_current = returns_current + reward[:, 0].numpy(), lengths_current + 1
+        # append returns of envs that are done (reset)
+        returns_eval.extend(returns_current[np.where(done)])
+        lengths_eval.extend(lengths_current[np.where(done)])
+        # zero out returns of the envs that are done (reset)
+        returns_current[np.where(done)], lengths_current[np.where(done)] = 0, 0
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
 
-    return eval_envs, stats_global
+    return eval_envs, returns_eval, lengths_eval
 
 
 def do_master_step(
         master_action, master_obs, master_timescale, policy, envs, env_render=None):
     # TODO: do we want to print it? (all the master actions)
-    print_master_action = True
+    print_master_action = False
     if print_master_action:
         if hasattr(master_action, 'cpu'):
             master_action = master_action.cpu().numpy()[:, 0]
         print('master action = {}'.format(master_action))
     master_reward = 0
     worker_obs = master_obs
+    stack_obs = [master_obs]
+    stack_act = []
     master_done = np.array([False] * master_action.shape[0])
     for _ in range(master_timescale):
         with torch.no_grad():
             worker_action = policy.get_worker_action(master_action, worker_obs)
         worker_obs, reward, done, infos = envs.step(worker_action)
+        stack_obs.append(worker_obs)
+        stack_act.append(worker_action.cpu().numpy())
         if env_render is not None:
             env_render.step(worker_action[:1].numpy())
         master_reward += reward
@@ -182,7 +224,7 @@ def do_master_step(
             pass
         if master_done.all():
             break
-    return worker_obs, master_reward, master_done, infos
+    return stack_obs, stack_act, master_reward, master_done, infos
 
 
 def get_device(device):

@@ -121,6 +121,11 @@ def main():
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
         import pudb; pudb.set_trace()
     for epoch in range(start_epoch, num_updates):
+        # Eval anv for test
+        print('Test evaluation')
+        eval_envs, returns_eval, lengths_eval = utils.evaluate(
+                policy, args, device, envs, eval_envs, env_render_eval)
+                
         print('Starting epoch {}'.format(epoch))
         for step in range(num_master_steps_per_update):
             # Sample actions
