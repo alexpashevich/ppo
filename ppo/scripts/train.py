@@ -112,7 +112,7 @@ def main():
     rollouts.obs[0].copy_(obs)
     rollouts.to(device)
 
-    stats_global, stats_local = stats.init(args)
+    stats_global, stats_local = stats.init(args.num_processes)
     start = time.time()
 
     # perform_actions = lambda seq: _perform_actions(

@@ -67,6 +67,14 @@ def set_up_training(args):
         torch.cuda.manual_seed(args.seed)
     torch.set_num_threads(1)
 
+def get_device(device):
+    assert device in ('cpu', 'cuda'), 'device should be in (cpu, cuda)'
+    if socket.gethostname() == 'gemini' or not torch.cuda.is_available():
+        device = torch.device("cpu")
+    else:
+        device = torch.device("cuda:0" if device == 'cuda' else "cpu")
+    return device
+
 def try_to_load_model(logdir):
     loaded, loaded_tuple = False, None
     for model_name in ('model_current.pt', 'model.pt'):
@@ -110,9 +118,11 @@ def load_ob_rms(ob_rms, envs):
 def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
     args = copy.deepcopy(args_train)
     args.render = False
+    num_processes = args.num_eval_episodes
     if eval_envs is None:
         eval_envs = make_vec_envs(
-            args.env_name, args.seed + args.num_processes, args.num_processes,
+            # args.env_name, args.seed + args.num_processes, args.num_processes,
+            args.env_name, args.seed + num_processes, num_processes,
             args.gamma, args.add_timestep, device, True, env_config=args)
 
     vec_norm = get_vec_normalize(eval_envs)
@@ -124,12 +134,12 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
     if env_render:
         env_render.reset()
     eval_recurrent_hidden_states = torch.zeros(
-        args.num_processes, policy.recurrent_hidden_state_size, device=device)
-    eval_masks = torch.zeros(args.num_processes, 1, device=device)
-    stats_global, stats_local = stats.init(args, eval=True)
+        num_processes, policy.recurrent_hidden_state_size, device=device)
+    eval_masks = torch.zeros(num_processes, 1, device=device)
+    stats_global, stats_local = stats.init(num_processes, eval=True)
 
     if args.save_gifs:
-        gifs_global, gifs_local = gifs.init(args.num_processes)
+        gifs_global, gifs_local = gifs.init(num_processes)
     else:
         gifs_global = None
 
@@ -152,12 +162,13 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
             if args.save_gifs:
                 # saving gifs only works for the BCRL setup
                 gifs_global, gifs_local = gifs.update(
-                    gifs_global, gifs_local, action, done, *master_step_output[4:])
+                    gifs_global, gifs_local, action, done, stats_local['done_before'],
+                    *master_step_output[4:])
 
-        stats_global, stats_local = stats.update(stats_global, stats_local, reward, done, infos, args)
+        stats_global, stats_local = stats.update(
+            stats_global, stats_local, reward, done, infos, args, overwrite_terminated=False)
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
     return eval_envs, stats_global, gifs_global
-
 
 def do_master_step(
         master_action, master_obs, master_timescale, policy, envs,
@@ -188,12 +199,3 @@ def do_master_step(
         return worker_obs, master_reward, master_done, infos
     else:
         return worker_obs, master_reward, master_done, infos, stack_obs, stack_act
-
-
-def get_device(device):
-    assert device in ('cpu', 'cuda'), 'device should be in (cpu, cuda)'
-    if socket.gethostname() == 'gemini' or not torch.cuda.is_available():
-        device = torch.device("cpu")
-    else:
-        device = torch.device("cuda:0" if device == 'cuda' else "cpu")
-    return device

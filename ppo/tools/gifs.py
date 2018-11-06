@@ -5,27 +5,30 @@ import copy
 from bc.utils import videos
 
 
-def init(num_processes):
-    gifs_global = []
+def init(num_envs):
+    gifs_global = [None] * num_envs
     gifs_local = []
-    for _ in range(num_processes):
+    for _ in range(num_envs):
         gifs_local.append({'frames': [], 'skill_actions': [], 'master_actions': []})
     return gifs_global, gifs_local
 
 
-def update(gifs_global, gifs_local, master_action, done, stack_obs, stack_act):
+def update(gifs_global, gifs_local, master_action, done_now, done_before, stack_obs, stack_act):
     for obs_skill, act_skill in zip(stack_obs, stack_act):
-        for i, (obs_worker, act_worker) in enumerate(zip(obs_skill, act_skill)):
-            frame = np.array((0.5+obs_worker[-1:].cpu().numpy()*0.5)*255, dtype=np.uint8)
-            gifs_local[i]['frames'].append(frame)
-            gifs_local[i]['skill_actions'].append(act_worker)
-    for i, master_action_process in enumerate(master_action.cpu().numpy()):
-        gifs_local[i]['master_actions'].append(master_action_process[0])
+        for env_id, (obs_worker, act_worker) in enumerate(zip(obs_skill, act_skill)):
+            if not done_before[env_id]:
+                frame = np.array((0.5+obs_worker[-1:].cpu().numpy()*0.5)*255, dtype=np.uint8)
+                gifs_local[env_id]['frames'].append(frame)
+                gifs_local[env_id]['skill_actions'].append(act_worker)
+    for env_id, master_action_env in enumerate(master_action.cpu().numpy()):
+        if not done_before[env_id]:
+            gifs_local[env_id]['master_actions'].append(master_action_env[0])
 
-    idxs_done = np.where(done)[0]
-    for idx in idxs_done:
-        gifs_global.append(copy.deepcopy(gifs_local[idx]))
-        gifs_local[idx] = {'frames': [], 'skill_actions': [], 'master_actions': []}
+    idxs_done_now = np.where(done_now)[0]
+    for env_id in idxs_done_now:
+        if not done_before[env_id]:
+            gifs_global[env_id] = copy.deepcopy(gifs_local[env_id])
+            gifs_local[env_id] = {'frames': [], 'skill_actions': [], 'master_actions': []}
     return gifs_global, gifs_local
 
 

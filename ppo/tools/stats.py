@@ -5,7 +5,7 @@ import numpy as np
 ALL_STATS = 'return', 'length', 'fail'
 
 
-def init(args, eval=False):
+def init(num_processes, eval=False):
     if not eval:
         # in the beginning of the training we want to have 100 values as well
         return_deque = deque([0]*100, maxlen=100)
@@ -20,14 +20,25 @@ def init(args, eval=False):
                     'fail_workspace': deque(maxlen=100),
                     'fail_objects': deque(maxlen=100),
                     'success': success_deque}
-    stats_local = {'return': np.array([0] * args.num_processes, dtype=np.float32),
-                   'length': np.array([0] * args.num_processes, dtype=np.int32)}
+    stats_local = {'return': np.array([0] * num_processes, dtype=np.float32),
+                   'length': np.array([0] * num_processes, dtype=np.int32),
+                   'done_before': np.array([False] * num_processes, dtype=np.bool)}
     return stats_global, stats_local
 
 
-def update(stats_g, stats_l, reward, done, infos, args):
+def update(stats_g, stats_l, reward, done, infos, args, overwrite_terminated=True):
     stats_l['return'] += reward[:, 0].numpy()
     stats_l['length'] += 1
+    if not overwrite_terminated:
+        # for evluation we want to run N envs and wait the N results
+        # we do not want a short episode (e.g. two fails) to replace a longer one (e.g. a success)
+        done_new = np.zeros(done.shape, dtype=np.bool)
+        for idx, (done_now, done_before) in enumerate(zip(done, stats_l['done_before'])):
+            if done_now and not done_before:
+                done_new[idx] = True
+        stats_l['done_before'] = np.logical_or(done, stats_l['done_before'])
+        done = done_new
+
     # append stats of the envs that are done (reset or fail)
     return_done = stats_l['return'][np.where(done)]
     stats_g['return'].extend(return_done)
