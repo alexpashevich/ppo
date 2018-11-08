@@ -187,7 +187,7 @@ def do_master_step(
             worker_action = policy.get_worker_action(master_action, worker_obs)
         worker_obs, reward, done, infos = envs.step(worker_action)
         if env_render is not None:
-            env_render.step(worker_action[:1].numpy())
+            env_render.step(worker_action[:1].cpu().numpy())
         if return_observations:
             stack_obs.append(worker_obs)
             stack_act.append(worker_action.cpu().numpy())
