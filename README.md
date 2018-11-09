@@ -5,26 +5,26 @@ Make sure that the MiME and the BC repos are in your `$PYTHONPATH`. All the exec
 ## How to run the RL training
 To train you need to run something like:
 ```bash
-python -m ppo.scripts.train --env-name UR5-BowlCamEnv-v0 --num-mini-batch 4 --num-processes 8 --max-length 600 --timescale 40 --entropy-coef 0.05 --value-loss-coef 1 --use-bcrl-setup --logdir {} --checkpoint-path {} [--num-skills {} --dim-skill-action {} --num-skill-action-pred {} --archi {}]
+python3 -m ppo.scripts.train --env UR5-BowlCamEnv-v0 --value-loss-coef=1 --entropy-coef=0.05 --device=cuda --num-eval-episodes=32 --num-frames-per-update=600 --max-length=600 --timescale=60 --num-processes=8 --num-mini-batch=4 --use-bcrl-setup --archi=resnet18_featbranch --num-skill-action-pred=4 --dim-skill-action=8 --input-type=depth --log-interval=1  --eval-interval=5 --eval-max-length-factor=1.5 --save-gifs --checkpoint-path={}.pth --logdir={} --seed={}
 ```
 By default the values are `--num-skills=4 --dim-skill-action=8 --num-skill-action-pred=4 --archi=resnet18_featbranch`.
 
 For a quick check if the training works fine:
 ```bash
-python -m ppo.scripts.train --num-mini-batch 2 --num-processes 4 --max-length 100 --timescale 25 --use-bcrl-setup --eval-interval 1 --num-eval-episodes 4 --save-gifs --logdir {} --checkpoint-path {} [--num-skills {} --dim-skill-action {} --num-skill-action-pred {} --archi {}]
+python3 -m ppo.scripts.train --num-mini-batch 2 --num-processes 4 --max-length 100 --timescale 25 --use-bcrl-setup --eval-interval 1 --num-eval-episodes 4 --save-gifs --logdir {} --checkpoint-path {} [--num-skills {} --dim-skill-action {} --num-skill-action-pred {} --archi {}]
 ```
 The training will be done on GPU if it is available. You can render both training and evaluation by setting `--render`. This will open an pybullet interface running in a separate process (will not impact the rendering of the other environments).
 
 Use can render the result of the training with the `enjoy.py` script:
 ```bash
-python -m ppo.scripts.enjoy --load-dir {}
+python3 -m ppo.scripts.enjoy --load-dir {}
 ```
 
 ## How to visualize the skills trained with BC
 
 To test the skills, run:
 ```bash
-python -m ppo.scripts.test_skills --render -cp <path_to_the_skill_network_trained_with_bc>
+python3 -m ppo.scripts.test_skills --render -cp <path_to_the_skill_network_trained_with_bc>
 ```
 By default it will run the environment 100 times (can be changed with `--num-episodes`) and print the success rate. To run the script faster, increase the number of processes with `--num-processes` (1 by deafult). If more than 1 process is running, the environment can not be rendered (do not set `--num-processes>1` and `--render` in the same time). The sequence of skills by default is `[0, 0, 1, 2, 3]` and you can change with, e.g. `--action-sequence='[3, 2, 1, 0]'` (loaded as a json string).
 
@@ -34,7 +34,7 @@ You can also pass the flag `--pudb` and perform the sequence of actions manually
 
 Run:
 ```bash
-python -m ppo.tests.run
+python3 -m ppo.tests.run
 ```
 
 # (original README is below) pytorch-a2c-ppo-acktr
