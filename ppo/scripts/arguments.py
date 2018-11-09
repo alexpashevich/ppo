@@ -78,6 +78,8 @@ def get_args():
                         help='number of episodes to use in evluation')
     parser.add_argument('--eval-interval', type=int, default=10,
                         help='eval interval, one eval per n updates (default: None)')
+    parser.add_argument('--eval-max-length-factor', type=float, default=1.0,
+                        help='horizon for eval episodes is the max length (train) multiplied by this')
     # logging
     parser.add_argument('--logdir', default='./logs/',
                         help='directory to save agent logs (default: ./logs/)')

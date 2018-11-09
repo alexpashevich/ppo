@@ -118,6 +118,8 @@ def load_ob_rms(ob_rms, envs):
 def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
     args = copy.deepcopy(args_train)
     args.render = False
+    # make the evaluation horizon longer (if eval_max_length_factor > 1)
+    args.max_length = int(args.max_length * args.eval_max_length_factor)
     num_processes = args.num_eval_episodes
     if eval_envs is None:
         eval_envs = make_vec_envs(
@@ -173,7 +175,8 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
 def do_master_step(
         master_action, master_obs, master_timescale, policy, envs,
         env_render=None, print_master_action=False, return_observations=False):
-    if print_master_action:
+    # if print_master_action:
+    if True:
         if hasattr(master_action, 'cpu'):
             master_action = master_action.cpu().numpy()[:, 0]
         print('master action = {}'.format(master_action))

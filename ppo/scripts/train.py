@@ -1,6 +1,7 @@
 import os
 import time
 import torch
+import copy
 import numpy as np
 from gym.spaces import Discrete
 
@@ -29,8 +30,11 @@ def create_render_env(args, device):
     from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
     env_render_train = SubprocVecEnv([
         make_env(args.env_name, args.seed, 0, args.add_timestep, False, args)])
+    args_eval = copy.deepcopy(args)
+    # make the evaluation horizon longer (if eval_max_length_factor > 1)
+    args_eval.max_length = int(args.max_length * args.eval_max_length_factor)
     env_render_eval = SubprocVecEnv([
-        make_env(args.env_name, args.seed + args.num_processes, 0, args.add_timestep, False, args)])
+        make_env(args.env_name, args.seed + args.num_processes, 0, args.add_timestep, False, args_eval)])
     return env_render_train, env_render_eval
 
 
@@ -115,8 +119,11 @@ def main():
     stats_global, stats_local = stats.init(args.num_processes)
     start = time.time()
 
-    # perform_actions = lambda seq: _perform_actions(
-    #     seq, policy, envs, env_render_train, args)
+    # GT to check whether the skills stay unchanged
+    if hasattr(policy.base, 'resnet'):
+        test_tensor = obs.clone()
+        policy.base.resnet.eval()
+        skills_check, feat_check = policy.base.resnet(test_tensor)
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
         import pudb; pudb.set_trace()
@@ -151,10 +158,14 @@ def main():
             next_value = policy.get_value(
                 rollouts.obs[-1], rollouts.recurrent_hidden_states[-1], rollouts.masks[-1]).detach()
 
-        # TODO: maybe add some kind of assert for resnet layers to stay unchanged after the update?
         rollouts.compute_returns(next_value, args.use_gae, args.gamma, args.tau)
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
+
+        # check if the skills do not change by the RL training
+        if hasattr(policy.base, 'resnet'):
+            skills_after_upd, feat_after_upd = policy.base.resnet(test_tensor)
+            assert np.all(skills_after_upd == skills_check) and np.all(feat_after_upd == feat_check)
 
         if epoch % args.save_interval == 0:
             log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args)
