@@ -14,7 +14,7 @@ from baselines.common.vec_env.vec_normalize import VecNormalize as VecNormalize_
 
 from ppo.parts.mime_env import MiMEEnv
 
-def make_env(env_id, seed, rank, add_timestep, allow_early_resets, env_config):
+def make_env(env_id, seed, rank, add_timestep, usued_allow_early_resets, env_config):
     def _thunk():
         if 'UR5' in env_id:
             print('creating MiME env with id {}'.format(rank))
@@ -38,8 +38,8 @@ def make_env(env_id, seed, rank, add_timestep, allow_early_resets, env_config):
     return _thunk
 
 def make_vec_envs(env_name, seed, num_processes, gamma, add_timestep,
-                  device, allow_early_resets, num_frame_stack=None, env_config=None):
-    envs = [make_env(env_name, seed, i, add_timestep, allow_early_resets, env_config)
+                  device, unused_allow_early_resets, num_frame_stack=None, env_config=None):
+    envs = [make_env(env_name, seed, i, add_timestep, unused_allow_early_resets, env_config)
             for i in range(num_processes)]
 
     if len(envs) > 1:

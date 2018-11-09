@@ -146,6 +146,7 @@ def main():
                 obs, reward, done, infos = utils.do_master_step(
                     action, rollouts.obs[step], args.timescale, policy, envs, env_render_train)
                 # print('step_time = {}'.format(time.time() - start_step))
+                obs = utils.reset_early_terminated_envs(envs, env_render_train, done)
 
             stats_global, stats_local = stats.update(
                 stats_global, stats_local, reward, done, infos, args)
@@ -177,8 +178,8 @@ def main():
                 total_num_env_steps, start, stats_global, action_loss,
                 value_loss, dist_entropy)
 
-        is_eval_time = (epoch % args.eval_interval == 0) or render
-        if (args.eval_interval and len(stats_global['length']) > 1 and is_eval_time):
+        is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
+        if render or (len(stats_global['length']) > 1 and is_eval_time):
             eval_envs, stats_eval, gifs_eval = utils.evaluate(
                 policy, args, device, envs, eval_envs, env_render_eval)
             log.log_eval(total_num_env_steps, stats_eval)

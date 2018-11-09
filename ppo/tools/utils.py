@@ -115,7 +115,7 @@ def load_ob_rms(ob_rms, envs):
         except:
             print('WARNING: did not manage to reuse the normalization statistics')
 
-def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
+def evaluate(policy, args_train, device, train_envs, eval_envs, env_render=None):
     args = copy.deepcopy(args_train)
     args.render = False
     # make the evaluation horizon longer (if eval_max_length_factor > 1)
@@ -130,7 +130,7 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
     vec_norm = get_vec_normalize(eval_envs)
     if vec_norm is not None:
         vec_norm.eval()
-        vec_norm.ob_rms = get_vec_normalize(envs).ob_rms
+        vec_norm.ob_rms = get_vec_normalize(train_envs).ob_rms
 
     obs = eval_envs.reset()
     if env_render:
@@ -161,6 +161,8 @@ def evaluate(policy, args_train, device, envs, eval_envs, env_render=None):
                 action, obs, args.timescale, policy, eval_envs, env_render,
                 return_observations=args.save_gifs)
             obs, reward, done, infos = master_step_output[:4]
+            # we do not care about resetting the terminated environments
+            # obs = reset_early_terminated_envs(eval_envs, env_render, done)
             if args.save_gifs:
                 # saving gifs only works for the BCRL setup
                 gifs_global, gifs_local = gifs.update(
@@ -188,12 +190,22 @@ def do_master_step(
     for _ in range(master_timescale):
         with torch.no_grad():
             worker_action = policy.get_worker_action(master_action, worker_obs)
+        for env_id, done_before in enumerate(master_done):
+            # might be not the best thing to do but if the env is done (reset was called)
+            # we apply the null action to it
+            if done_before:
+                worker_action[env_id] = 0
         worker_obs, reward, done, infos = envs.step(worker_action)
         if env_render is not None:
             env_render.step(worker_action[:1].cpu().numpy())
         if return_observations:
-            stack_obs.append(worker_obs)
-            stack_act.append(worker_action.cpu().numpy())
+            for env_id, done_before in enumerate(master_done):
+                # we do not want to record gifs after resets
+                if not done_before:
+                    stack_obs.append(worker_obs)
+                    stack_act.append(worker_action.cpu().numpy())
+        # we do not add the rewards after reset
+        reward[np.where(master_done)] = 0
         master_reward += reward
         master_done = np.logical_or(master_done, done)
         if master_done.all():
@@ -202,3 +214,21 @@ def do_master_step(
         return worker_obs, master_reward, master_done, infos
     else:
         return worker_obs, master_reward, master_done, infos, stack_obs, stack_act
+
+def reset_early_terminated_envs(envs, env_render, done, num_frames=3):
+    # TODO: rewrite this method later
+    # we use the master with a fixed timescale, so some envs receive the old master action after reset
+    # we manually reset the envs that were terminated during the master step after it
+    done_idxs = np.where(done)[0]
+    remotes = envs.venv.venv.remotes
+    for idx in done_idxs:
+        remotes[idx].send(('reset', None))
+    if env_render and done[0]:
+        env_render.reset()
+    for idx in done_idxs:
+        obs_numpy = remotes[idx].recv()
+        obs_torch = torch.from_numpy(obs_numpy).float().to(envs.venv.device)
+        for _ in range(num_frames):
+            envs.stacked_obs[idx].append(obs_torch)
+    obs = envs._deque_to_tensor()
+    return obs
