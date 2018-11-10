@@ -167,7 +167,7 @@ def evaluate(policy, args_train, device, train_envs, eval_envs, env_render=None)
                 # saving gifs only works for the BCRL setup
                 gifs_global, gifs_local = gifs.update(
                     gifs_global, gifs_local, action, done, stats_local['done_before'],
-                    *master_step_output[4:])
+                    master_step_output[4])
 
         stats_global, stats_local = stats.update(
             stats_global, stats_local, reward, done, infos, args, overwrite_terminated=False)
@@ -183,27 +183,29 @@ def do_master_step(
             master_action = master_action.cpu().numpy()[:, 0]
         print('master action = {}'.format(master_action))
     master_reward = 0
-    worker_obs = master_obs
+    skill_obs = master_obs
     if return_observations:
-        stack_obs, stack_act = [master_obs], []
+        envs_history = {'observations': [[] for _ in range(master_action.shape[0])],
+                        'skill_actions': [[] for _ in range(master_action.shape[0])]}
     master_done = np.array([False] * master_action.shape[0])
     for _ in range(master_timescale):
         with torch.no_grad():
-            worker_action = policy.get_worker_action(master_action, worker_obs)
+            skill_action = policy.get_worker_action(master_action, skill_obs)
         for env_id, done_before in enumerate(master_done):
             # might be not the best thing to do but if the env is done (reset was called)
             # we apply the null action to it
             if done_before:
-                worker_action[env_id] = 0
-        worker_obs, reward, done, infos = envs.step(worker_action)
+                skill_action[env_id] = 0
+        skill_obs, reward, done, infos = envs.step(skill_action)
         if env_render is not None:
-            env_render.step(worker_action[:1].cpu().numpy())
+            env_render.step(skill_action[:1].cpu().numpy())
         if return_observations:
-            for env_id, done_before in enumerate(master_done):
+            for env_id, (done_before, done_now) in enumerate(zip(master_done, done)):
                 # we do not want to record gifs after resets
-                if not done_before:
-                    stack_obs.append(worker_obs)
-                    stack_act.append(worker_action.cpu().numpy())
+                if not done_before and not done_now:
+                    envs_history['observations'][env_id].append(skill_obs[env_id].cpu().numpy())
+                    envs_history['skill_actions'][env_id].append(skill_action[env_id].cpu().numpy())
+                    # skill_actions_envs_list.append(skill_action.cpu().numpy())
         # we do not add the rewards after reset
         reward[np.where(master_done)] = 0
         master_reward += reward
@@ -211,9 +213,9 @@ def do_master_step(
         if master_done.all():
             break
     if not return_observations:
-        return worker_obs, master_reward, master_done, infos
+        return skill_obs, master_reward, master_done, infos
     else:
-        return worker_obs, master_reward, master_done, infos, stack_obs, stack_act
+        return skill_obs, master_reward, master_done, infos, envs_history
 
 def reset_early_terminated_envs(envs, env_render, done, num_frames=3):
     # TODO: rewrite this method later

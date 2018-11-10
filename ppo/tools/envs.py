@@ -53,7 +53,8 @@ def make_vec_envs(env_name, seed, num_processes, gamma, add_timestep,
 
     envs = VecPyTorch(envs, device)
 
-    if 'Cam' in env_name and env_config.use_bcrl_setup:
+    # also stack frames for the pure PPO baseline
+    if 'Cam' in env_name and (env_config.use_bcrl_setup or env_config.use_direct_actions):
         envs = VecPyTorchFrameStack(envs, 3, device)
     # elif envs.observation_space.shape and len(envs.observation_space.shape) == 3:
     #     envs = VecPyTorchFrameStack(envs, 4, device)

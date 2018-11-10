@@ -13,13 +13,14 @@ def init(num_envs):
     return gifs_global, gifs_local
 
 
-def update(gifs_global, gifs_local, master_action, done_now, done_before, stack_obs, stack_act):
-    for obs_skill, act_skill in zip(stack_obs, stack_act):
-        for env_id, (obs_worker, act_worker) in enumerate(zip(obs_skill, act_skill)):
-            if not done_before[env_id]:
-                frame = np.array((0.5+obs_worker[-1:].cpu().numpy()*0.5)*255, dtype=np.uint8)
+def update(gifs_global, gifs_local, master_action, done_now, done_before, envs_history):
+    for env_id in range(master_action.shape[0]):
+        if not done_before[env_id]:
+            skill_tuple = envs_history['observations'][env_id], envs_history['skill_actions'][env_id]
+            for obs_skill, action_skill in zip(*skill_tuple):
+                frame = np.array((0.5 + obs_skill[-1:] * 0.5) * 255, dtype=np.uint8)
                 gifs_local[env_id]['frames'].append(frame)
-                gifs_local[env_id]['skill_actions'].append(act_worker)
+                gifs_local[env_id]['skill_actions'].append(action_skill)
     for env_id, master_action_env in enumerate(master_action.cpu().numpy()):
         if not done_before[env_id]:
             gifs_local[env_id]['master_actions'].append(master_action_env[0])
@@ -45,8 +46,9 @@ def save(logdir_path, gifs_list_of_dict, epoch):
         master_actions = gif_dict['master_actions']
         skill_actions = gif_dict['skill_actions']
         gif_name = '{:02}.gif'.format(idx_gif)
-        videos.write_video(frames, os.path.join(gifs_dir, gif_name))
-        np.savez(os.path.join(gifs_dir, '{:02}.npz'.format(idx_gif)),
-                 master_actions=master_actions,
-                 skill_actions=skill_actions)
+        if len(frames):
+            videos.write_video(frames, os.path.join(gifs_dir, gif_name))
+            np.savez(os.path.join(gifs_dir, '{:02}.npz'.format(idx_gif)),
+                    master_actions=master_actions,
+                    skill_actions=skill_actions)
     print('Wrote {} gifs'.format(len(gifs_list_of_dict)))

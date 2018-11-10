@@ -232,6 +232,7 @@ class ResnetBase(NNBase):
             recurrent_policy=False,  # is not supported
             hidden_size=64,
             archi='resnet18',
+            pretrained=False,
             **kwargs):
         super(ResnetBase, self).__init__(recurrent_policy, hidden_size, hidden_size)
 
@@ -239,8 +240,10 @@ class ResnetBase(NNBase):
         self.dim_skill_action = dim_skill_action
         self.num_skill_action_pred = num_skill_action_pred
         num_outputs_resnet = self.num_skills * dim_skill_action * num_skill_action_pred
+        if kwargs['use_direct_actions']:
+            num_outputs_resnet = dim_skill_action
         self.resnet = getattr(resnet, archi)(
-            pretrained=False,
+            pretrained=pretrained,
             input_dim=num_inputs,
             num_classes=num_outputs_resnet,  # dim_action in ResNet
             num_skills=num_skills,

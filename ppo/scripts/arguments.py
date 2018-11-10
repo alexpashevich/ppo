@@ -92,6 +92,11 @@ def get_args():
                         help='save interval, one save per n updates (default: 100)')
     parser.add_argument('--save-gifs', action='store_true', default=False,
                         help='whether to save the gifs of the evaluation environments')
+    # pure PPO baseline
+    parser.add_argument('--use-direct-actions', action='store_true', default=False,
+                        help='whether to directly use RL to command the agent (no master)')
+    parser.add_argument('--pretrained', action='store_true', default=False,
+                        help='whether to use the pretrained ImageNet layers of ResNet')
 
     args = parser.parse_args()
     args.recurrent_policy = False  # turn off recurrent policies support

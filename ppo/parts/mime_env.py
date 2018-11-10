@@ -28,6 +28,11 @@ class MiMEEnv(object):
         self._skip_unused_obs = vars(config).get('skip_unused_obs', False)
         self._id = id
         self.use_bcrl_setup = vars(config).get('use_bcrl_setup', False)
+        # pure PPO baseline
+        self.use_direct_actions = vars(config).get('use_direct_actions', False)
+        if self.use_direct_actions:
+            # ugly quick fix
+            self.use_bcrl_setup = True
         self.num_frames = 1 if self.use_bcrl_setup else 3
         self.observation_type = vars(config).get('input_type', 'depth')
         # some copypasting
@@ -44,8 +49,11 @@ class MiMEEnv(object):
         self.action_keys = list(self.env.action_space.spaces.keys())
         if vars(config).get('checkpoint_path', None) is not None:
             # load action statistics for the denormalization
-            self.action_mean, self.action_std,  = self._load_action_stats(
+            self.action_mean, self.action_std = self._load_action_stats(
                 config.checkpoint_path)
+        else:
+            assert self.use_direct_actions
+            self.action_mean, self.action_std = None, None
 
         self.image_transform = transforms.Compose([transforms.ToPILImage(),
                                                    transforms.Resize([224, 224]),
@@ -167,8 +175,11 @@ class MiMEEnv(object):
                     action_value = action[2:5]
                 elif action_key == 'angular_velocity':
                     action_value = action[5:8]
-                action_value *= self.action_std[action_key]
-                action_value += self.action_mean[action_key]
+                if self.action_mean and self.action_std:
+                    action_value *= self.action_std[action_key]
+                    action_value += self.action_mean[action_key]
+                else:
+                    assert self.use_direct_actions
                 action_dict[action_key] = action_value
             else:
                 action_value = -1 + 2 * (action[0] > action[1])
