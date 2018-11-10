@@ -17,7 +17,7 @@ The training will be done on GPU if it is available. You can render both trainin
 
 Use can render the result of the training with the `enjoy.py` script:
 ```bash
-python3 -m ppo.scripts.enjoy --load-dir {}
+python3 -m ppo.scripts.enjoy --load-path {}
 ```
 
 ## How to visualize the skills trained with BC
