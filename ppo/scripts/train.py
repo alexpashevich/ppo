@@ -81,8 +81,9 @@ def main():
     loaded, loaded_tuple = utils.try_to_load_model(logdir)
     if loaded:
         policy, optimizer_state_dict, ob_rms, start_epoch, args = loaded_tuple
-    utils.set_up_training(args)
+    utils.seed_torch(args)
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
+    assert args.use_bcrl_setup or not args.save_gifs, 'Gifs are supported only for BCRL'
 
     # create the parallel envs
     envs = create_envs(args, device)
@@ -180,12 +181,15 @@ def main():
 
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
         if render or (len(stats_global['length']) > 1 and is_eval_time):
-            eval_envs, stats_eval, gifs_eval = utils.evaluate(
-                policy, args, device, envs, eval_envs, env_render_eval)
-            log.log_eval(total_num_env_steps, stats_eval)
             log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
-            if gifs_eval:
-                gifs.save(logdir, gifs_eval, epoch)
+            if not args.eval_offline:
+                eval_envs, stats_eval, gifs_eval = utils.evaluate(
+                    policy, args, device, envs, eval_envs, env_render_eval)
+                log.log_eval(total_num_env_steps, stats_eval)
+                if gifs_eval:
+                    gifs.save(logdir, gifs_eval, epoch)
+            else:
+                print('Saving the model after epoch {} for the offline evaluation'.format(epoch))
 
 
 if __name__ == "__main__":

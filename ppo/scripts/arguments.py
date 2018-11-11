@@ -75,11 +75,13 @@ def get_args():
                         help='number of future actions predicted')
     # evaluation
     parser.add_argument('--num-eval-episodes', type=int, default=16,
-                        help='number of episodes to use in evluation')
+                        help='number of episodes to use in evaluation')
     parser.add_argument('--eval-interval', type=int, default=10,
                         help='eval interval, one eval per n updates (default: None)')
     parser.add_argument('--eval-max-length-factor', type=float, default=1.0,
                         help='horizon for eval episodes is the max length (train) multiplied by this')
+    parser.add_argument('--eval-offline', action='store_true', default=False,
+                        help='whether to only save the eval checkpoints for the offline evaluation')
     # logging
     parser.add_argument('--logdir', default='./logs/',
                         help='directory to save agent logs (default: ./logs/)')

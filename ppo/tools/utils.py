@@ -61,7 +61,7 @@ def init_normc_(weight, gain=1):
     weight *= gain / torch.sqrt(weight.pow(2).sum(1, keepdim=True))
 
 
-def set_up_training(args):
+def seed_torch(args):
     torch.manual_seed(args.seed)
     if args.device == 'cuda':
         torch.cuda.manual_seed(args.seed)
@@ -115,7 +115,7 @@ def load_ob_rms(ob_rms, envs):
         except:
             print('WARNING: did not manage to reuse the normalization statistics')
 
-def evaluate(policy, args_train, device, train_envs, eval_envs, env_render=None):
+def evaluate(policy, args_train, device, train_envs_or_ob_rms, eval_envs, env_render=None):
     args = copy.deepcopy(args_train)
     args.render = False
     # make the evaluation horizon longer (if eval_max_length_factor > 1)
@@ -123,14 +123,17 @@ def evaluate(policy, args_train, device, train_envs, eval_envs, env_render=None)
     num_processes = args.num_eval_episodes
     if eval_envs is None:
         eval_envs = make_vec_envs(
-            # args.env_name, args.seed + args.num_processes, args.num_processes,
             args.env_name, args.seed + num_processes, num_processes,
             args.gamma, args.add_timestep, device, True, env_config=args)
 
     vec_norm = get_vec_normalize(eval_envs)
     if vec_norm is not None:
         vec_norm.eval()
-        vec_norm.ob_rms = get_vec_normalize(train_envs).ob_rms
+        if 'RunningMeanStd' in str(type(train_envs_or_ob_rms)):
+            ob_rms = train_envs_or_ob_rms
+        else:
+            ob_rms = get_vec_normalize(train_envs_or_ob_rms).ob_rms
+        vec_norm.ob_rms = ob_rms
 
     obs = eval_envs.reset()
     if env_render:

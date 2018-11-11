@@ -14,8 +14,10 @@ train_writer, eval_writer = None, None
 
 def init_writers(train_logdir, eval_logdir):
     global train_writer, eval_writer
-    train_writer = SummaryWriter(train_logdir)
-    eval_writer = SummaryWriter(eval_logdir)
+    if train_logdir:
+        train_writer = SummaryWriter(train_logdir)
+    if eval_logdir:
+        eval_writer = SummaryWriter(eval_logdir)
 
 
 def add_summary(tag, value, iter, stage='train'):
