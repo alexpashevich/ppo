@@ -30,7 +30,7 @@ def update(stats_g, stats_l, reward, done, infos, args, overwrite_terminated=Tru
     stats_l['return'] += reward[:, 0].numpy()
     stats_l['length'] += 1
     if not overwrite_terminated:
-        # for evluation we want to run N envs and wait the N results
+        # for evaluation we want to run N envs and wait the N results
         # we do not want a short episode (e.g. two fails) to replace a longer one (e.g. a success)
         done_new = np.zeros(done.shape, dtype=np.bool)
         for idx, (done_now, done_before) in enumerate(zip(done, stats_l['done_before'])):
@@ -40,12 +40,11 @@ def update(stats_g, stats_l, reward, done, infos, args, overwrite_terminated=Tru
         done = done_new
 
     # append stats of the envs that are done (reset or fail)
-    return_done = stats_l['return'][np.where(done)]
-    stats_g['return'].extend(return_done)
+    stats_g['return'].extend(stats_l['return'][np.where(done)])
     stats_g['length'].extend(stats_l['length'][np.where(done)] * args.timescale)
-    success_done = (return_done > 0) + 0
-    stats_g['success'].extend(success_done)
     infos_done = np.array(infos)[np.where(done)]
+    success_done = [int(info['success']) for info in infos_done]
+    stats_g['success'].extend(success_done)
     fail_messages_done = [info['failure_message'] for info in infos_done]
     num_done = int(np.sum(done))
     num_fail = int(np.sum([len(m) > 0 for m in fail_messages_done]))
