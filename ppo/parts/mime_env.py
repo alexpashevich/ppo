@@ -52,7 +52,6 @@ class MiMEEnv(object):
             self.action_mean, self.action_std = self._load_action_stats(
                 config.checkpoint_path)
         else:
-            assert self.use_direct_actions
             self.action_mean, self.action_std = None, None
 
         self.image_transform = transforms.Compose([transforms.ToPILImage(),

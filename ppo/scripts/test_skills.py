@@ -49,11 +49,10 @@ def get_args():
     args.use_bcrl_setup = not args.no_use_bcrl_setup
     return args
 
-def _perform_actions(action_sequence, envs, policy, args):
+def _perform_actions(action_sequence, obs, envs, policy, args):
     reward_glob = np.array([0 for _ in range(args.num_processes)], dtype=np.float)
     done_glob = np.array([False for _ in range(args.num_processes)], dtype=np.bool)
     info_glob = [{} for _ in range(args.num_processes)]
-    obs = envs.reset()
     for action in action_sequence:
         action = np.array([action for _ in range(args.num_processes)])
         if not args.use_bcrl_setup:
@@ -72,7 +71,7 @@ def _perform_actions(action_sequence, envs, policy, args):
         done_glob = np.logical_or(done_glob, done_step)
         if done_glob.all():
             break
-    return reward_glob, done_glob, info_glob
+    return obs, reward_glob, done_glob, info_glob
 
 
 def main():
@@ -100,12 +99,14 @@ def main():
         policy.base.resnet.eval()
 
     episodes_success = []
+    obs = envs.reset()
     # perform_actions = lambda seq: _perform_actions(seq, envs, policy, args)
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
         import pudb; pudb.set_trace()
     for epoch in range(args.num_episodes // args.num_processes):
-        reward_sum, done, info = _perform_actions(args.action_sequence, envs, policy, args)
+        obs, reward_sum, done, info = _perform_actions(args.action_sequence, obs, envs, policy, args)
+        obs = envs.reset()
         success = np.count_nonzero(reward_sum > 0)
         print('epoch success = {}'.format(success))
         episodes_success.append(success)
