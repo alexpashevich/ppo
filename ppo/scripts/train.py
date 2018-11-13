@@ -57,6 +57,11 @@ def _perform_actions(action_sequence, observation, policy, envs, env_render, arg
     # observation = envs.reset()
     # if env_render:
     #     env_render.reset()
+    if args.save_gifs:
+        gifs_global, gifs_local = gifs.init(args.num_processes)
+        done_before = np.array([False] * args.num_processes, dtype=np.bool)
+    else:
+        gifs_global = None
     for action in action_sequence:
         master_action_numpy = [[action] for _ in range(observation.shape[0])]
         master_action = torch.Tensor(master_action_numpy).int()
@@ -65,9 +70,19 @@ def _perform_actions(action_sequence, observation, policy, envs, env_render, arg
             if env_render is not None:
                 env_render.step(master_action[:1].numpy())
         else:
-            observation, reward, _, _ = utils.do_master_step(
-                master_action, observation, args.timescale, policy, envs, env_render)
+            observation, reward, done, _, observation_history = utils.do_master_step(
+                master_action, observation, args.timescale, policy, envs, env_render,
+                return_observations=True)
+            # TODO: change the gifs writing. so far works only when envs are done after the actions
+            if args.save_gifs:
+                # saving gifs only works for the BCRL setup
+                gifs_global, gifs_local = gifs.update(
+                    gifs_global, gifs_local, torch.tensor(master_action_numpy), done, done_before,
+                    observation_history)
+                done_before = np.logical_or(done, done_before)
         print('reward = {}'.format(reward[:, 0]))
+    if args.save_gifs:
+        gifs.save(os.path.join(args.logdir, args.timestamp), gifs_global, epoch=-1)
 
 
 def main():
@@ -127,6 +142,7 @@ def main():
         skills_check, feat_check = policy.base.resnet(test_tensor)
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
+        _perform_actions([5,0,2,1,3], obs, policy, envs, None, args)
         import pudb; pudb.set_trace()
     for epoch in range(start_epoch, num_updates):
         print('Starting epoch {}'.format(epoch))

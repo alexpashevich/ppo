@@ -128,26 +128,40 @@ class MiMEEnv(object):
                     observation = np.concatenate((observation, obs_value))
         else:
             if not self.use_bcrl_setup:
-                if isinstance(observs, dict):
-                    obs_big = self._extract_obs(observs)
-                    obs_big = np.tile(obs_big, 3).reshape((240, 320, -1))
-                    # obs_big: 240 x 320 x 3(12)
-                    obs_big = np.moveaxis(obs_big, 2, 0)
-                    # obs_big: 3(12) x 240 x 320
-                else:
-                    obs_big = np.concatenate([
-                        self._extract_obs(obs) for obs in observs[-self.num_frames:]])
-                    # obs_big: 3(12) x 240 x 320
-            else:
-                obs_big = self._extract_obs(observs)
+                raise NotImplementedError('implement the proper normalization')
+            #     if isinstance(observs, dict):
+            #         obs_big = self._extract_obs(observs)
+            #         obs_big = np.tile(obs_big, 3).reshape((240, 320, -1))
+            #         # obs_big: 240 x 320 x 3(12)
+            #         obs_big = np.moveaxis(obs_big, 2, 0)
+            #         # obs_big: 3(12) x 240 x 320
+            #     else:
+            #         obs_big = np.concatenate([
+            #             self._extract_obs(obs) for obs in observs[-self.num_frames:]])
+            #         # obs_big: 3(12) x 240 x 320
+            # else:
+            #     obs_big = self._extract_obs(observs)
+            # for obs_channel in obs_big:
+            #     # 1) transforms.ToPILImage expects 3D tensor, so we use [None]
+            #     # 2) transforms.ToPILImage expects image between 0. and 1.
+            #     # 3) we remove the extra dim with [0] afterwards
+            #     obs_transformed = self.image_transform(obs_channel[..., None])[0].numpy()
+            #     observation.append(obs_transformed)
+            if self.observation_type == 'depth':
+                obs_keys = ('depth0',)
+            elif self.observation_type == 'rgbd':
+                obs_keys = ('rgb0', 'depth0')
             observation = []
-            for obs_channel in obs_big:
-                # 1) transforms.ToPILImage expects 3D tensor, so we use [None]
-                # 2) transforms.ToPILImage expects image between 0. and 1.
-                # 3) we remove the extra dim with [0] afterwards
-                obs_transformed = self.image_transform(obs_channel[..., None])[0].numpy()
+            for obs_key in obs_keys:
+                # this might be the depth channel or the rgb whole
+                obs_big = observs[obs_key]
+                if len(obs_big.shape) == 2:
+                    # transforms.ToPILImage expects 3D tensor, so we use [None]
+                    obs_big = obs_big[..., None]
+                # we remove the extra dim with [0] afterwards
+                obs_transformed = self.image_transform(obs_big).numpy()
                 observation.append(obs_transformed)
-            observation = np.stack(observation)
+            observation = np.concatenate(observation, axis=0)
         return observation
 
     def _get_null_action_dict(self):

@@ -5,7 +5,7 @@ import torch
 from gym.spaces import Discrete
 
 from ppo.parts.model import MasterPolicy
-from ppo.tools.utils import load_from_checkpoint, do_master_step, set_up_training, get_device
+from ppo.tools.utils import load_from_checkpoint, do_master_step, seed_torch, get_device
 from ppo.tools.envs import make_vec_envs
 
 def get_args():
@@ -41,7 +41,7 @@ def get_args():
                         help='dimensionality of a skill action')
     parser.add_argument('--num-skill-action-pred', '-nap', type=int, default=4,
                         help='dimensionality of a skill action')
-    parser.add_argument('--archi', type=str, default='resnet18',
+    parser.add_argument('--archi', type=str, default='resnet18_featbranch',
                         help='which architecture to use (from bc.net.architectures.resnet)')
     parser.add_argument('--checkpoint-path', '-cp', type=str, default=None,
                         help='if specified, load the networks weights from the file')
@@ -77,7 +77,7 @@ def _perform_actions(action_sequence, obs, envs, policy, args):
 def main():
     args = get_args()
     device = get_device(args.device)
-    set_up_training(args)
+    seed_torch(args)
     envs = make_vec_envs(
         args.env_name, args.seed, args.num_processes, 1.0, False, device, True, env_config=args)
     policy = None

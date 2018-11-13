@@ -240,7 +240,7 @@ class ResnetBase(NNBase):
         self.dim_skill_action = dim_skill_action
         self.num_skill_action_pred = num_skill_action_pred
         num_outputs_resnet = self.num_skills * dim_skill_action * num_skill_action_pred
-        if kwargs['use_direct_actions']:
+        if 'use_direct_actions' in kwargs and kwargs['use_direct_actions']:
             num_outputs_resnet = dim_skill_action
         self.resnet = getattr(resnet, archi)(
             pretrained=pretrained,
