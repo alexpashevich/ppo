@@ -186,7 +186,7 @@ def main():
             assert np.all(skills_after_upd == skills_check) and np.all(feat_after_upd == feat_check)
 
         if epoch % args.save_interval == 0:
-            log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args)
+            log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
 
         total_num_env_steps = (epoch + 1) * args.num_processes * args.num_frames_per_update
 
