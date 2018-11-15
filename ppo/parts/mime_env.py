@@ -255,6 +255,8 @@ class MiMEEnv(object):
         action_dict = self._get_action_dict(action)
         obs, reward, done, info = self.env.step(action_dict)
         observation = self._obs_dict_to_numpy(obs)
+        if len(info['failure_message']):
+            print('env {} failure {}'.format(self._id, info['failure_message']))
         return observation, reward, done, info
 
     def step(self, action):
@@ -271,6 +273,7 @@ class MiMEEnv(object):
         return observation_tuple
 
     def reset(self):
+        print('env {} is reset'.format(self._id))
         if self._render:
             print('env is reset')
         obs = self.env.reset()

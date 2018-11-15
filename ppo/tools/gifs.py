@@ -18,7 +18,12 @@ def update(gifs_global, gifs_local, master_action, done_now, done_before, envs_h
         if not done_before[env_id]:
             skill_tuple = envs_history['observations'][env_id], envs_history['skill_actions'][env_id]
             for obs_skill, action_skill in zip(*skill_tuple):
-                frame = np.array((0.5 + obs_skill[-1:] * 0.5) * 255, dtype=np.uint8)
+                if obs_skill.shape[1] == 3:
+                    channels = obs_skill[-1:]
+                else:
+                    channels = obs_skill[-4:-1].swapaxes(0, 1).swapaxes(1, 2)
+                frame = np.array((0.5 + channels * 0.5) * 255, dtype=np.uint8)
+                # frame = np.array((0.5 + obs_skill[-1:] * 0.5) * 255, dtype=np.uint8)
                 gifs_local[env_id]['frames'].append(frame)
                 gifs_local[env_id]['skill_actions'].append(action_skill)
     for env_id, master_action_env in enumerate(master_action.cpu().numpy()):

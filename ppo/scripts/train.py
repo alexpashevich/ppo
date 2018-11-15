@@ -142,7 +142,7 @@ def main():
         skills_check, feat_check = policy.base.resnet(test_tensor)
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
-        _perform_actions([5,0,2,1,3], obs, policy, envs, None, args)
+        _perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs, None, args)
         import pudb; pudb.set_trace()
     for epoch in range(start_epoch, num_updates):
         print('Starting epoch {}'.format(epoch))
