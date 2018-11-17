@@ -74,6 +74,10 @@ def save_model(save_path, policy, optimizer, epoch, device, envs, config, eval=F
     model_path = os.path.join(save_path, model_name)
     torch.save(save_model, model_path)
     current_model_symlink = os.path.join(save_path, 'model_current.pt')
-    if os.path.exists(current_model_symlink):
-        os.unlink(current_model_symlink)
-    os.symlink(model_path, current_model_symlink)
+    try:
+        if os.path.exists(current_model_symlink):
+            os.unlink(current_model_symlink)
+        os.symlink(model_path, current_model_symlink)
+    except:
+        # TODO: why does it happen?
+        pass
