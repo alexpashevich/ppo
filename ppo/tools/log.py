@@ -48,9 +48,10 @@ def log_train(total_steps, start, stats, action_loss, value_loss, entropy):
 
 
 def log_eval(total_steps, stats):
-    returns = stats['return']
-    print("Evaluation after {} steps using {} episodes: mean reward {:.5f}". format(
-        total_steps, len(returns), np.mean(returns)))
+    if 'return' in stats:
+        returns = stats['return']
+        print("Evaluation after {} steps using {} episodes: mean reward {:.5f}". format(
+            total_steps, len(returns), np.mean(returns)))
     for stat_key, stat_value in stats.items():
         add_summary('env/{}'.format(stat_key), np.mean(stat_value), total_steps, 'eval')
         if stat_key == 'return':

@@ -4,6 +4,7 @@ import time
 import torch
 import glob
 import numpy as np
+import json
 
 # import ppo.tools.utils as utils
 from ppo.tools.utils import get_device, evaluate, seed_torch
@@ -41,6 +42,8 @@ def get_args():
                         help='first epoch to evaluate')
     parser.add_argument('--last-epoch', type=int, default=7777777,
                         help='last epoch to evaluate')
+    parser.add_argument('--epochs-list', type=json.loads, default=None,
+                        help='list of epochs to evaluate')
     args = parser.parse_args()
     return args
 
@@ -99,19 +102,24 @@ def main():
     else:
         load_paths = [args.expdir]
     load_paths_sorted = sorted(load_paths, key=lambda s: int(s.split('_')[-1].replace('.pt', '')))
+    stats_list, gifs_list = [], []
     # for load_path in reversed(load_paths_sorted):
     for load_path in load_paths_sorted:
         checkpoint_success_rate = 0
         epoch = int(load_path.split('_')[-1].replace('.pt', ''))
-        for _ in range(args.num_repeat_eval):
-            if epoch < args.first_epoch:
-                print('skipping epoch {}, first epoch to evaluate is {}'.format(
-                    epoch, args.first_epoch))
+        if epoch < args.first_epoch:
+            print('skipping epoch {}, first epoch to evaluate is {}'.format(
+                epoch, args.first_epoch))
+            continue
+        if epoch > args.last_epoch:
+            print('skipping epoch {}, last epoch to evaluate is {}'.format(
+                epoch, args.last_epoch))
+            continue
+        if args.epochs_list:
+            if epoch not in args.epochs_list:
+                print('epochs_list = {}, epoch {} is not in it'.format(args.epochs_list, epoch))
                 continue
-            if epoch > args.last_epoch:
-                print('skipping epoch {}, last epoch to evaluate is {}'.format(
-                    epoch, args.last_epoch))
-                continue
+        for repeat_id in range(args.num_repeat_eval):
             gifs_path_epoch = os.path.join(args.expdir, 'gifs', 'epoch{}'.format(epoch))
             # gifs_path_epoch = os.path.join('./gifs', 'epoch{}seed{}'.format(epoch, args.seed))
             # if os.path.exists(gifs_path_epoch):
@@ -132,16 +140,22 @@ def main():
             print("Evaluation of epoch {} ({} steps) took {:.1f} seconds".format(
                 epoch, num_env_steps, time.time() - start))
             print(stats)
+            # remove success to replace it by the averaged success rate
+            stats.pop('success')
+            gifs_list.append(gifs)
             print('Success rate = {}'.format(success_rate))
             if args.log_tb:
                 log_eval(num_env_steps, stats)
             if args.save_gifs:
-                save_gifs(args.expdir, gifs, epoch)
+                save_gifs(args.expdir, gifs, '{}_trial{}'.format(epoch, repeat_id))
             # save_gifs('./Dumps/eval_bowl/seed{}'.format(args.seed), gifs, epoch)
+        epoch_success_rate = checkpoint_success_rate / args.num_repeat_eval
         print('success rate of {} after {} episodes is {}'.format(
             load_path,
             args.num_repeat_eval * args.num_episodes,
-            checkpoint_success_rate / args.num_repeat_eval))
+            epoch_success_rate))
+        if args.log_tb:
+            log_eval(num_env_steps, {'success': epoch_success_rate})
 
 
 if __name__ == "__main__":
