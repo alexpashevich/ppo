@@ -1,10 +1,8 @@
-import math
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ppo.tools.utils import AddBias, init, init_normc_
+from ppo.tools.misc import AddBias, init, init_normc_
 
 """
 Modify standard PyTorch distributions so they are compatible with this code.

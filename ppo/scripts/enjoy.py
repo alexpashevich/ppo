@@ -2,8 +2,9 @@ import argparse
 import os
 import torch
 
-from ppo.tools.envs import VecPyTorch, make_vec_envs
-from ppo.tools.utils import get_render_func, get_vec_normalize, do_master_step, get_device
+from ppo.tools.envs import make_vec_envs
+from ppo.tools.misc import get_vec_normalize, get_device
+from ppo.scripts.utils import do_master_step
 
 
 def get_args():

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torchvision import transforms
 
 from ppo.parts.distributions import Categorical, DiagGaussian
-from ppo.tools.utils import init, init_normc_
+from ppo.tools.misc import init, init_normc_
 
 from bc.net.architectures import resnet
 

@@ -1,120 +1,80 @@
 import torch
-import torch.nn as nn
 
-import os
-import glob
 import copy
-import socket
+import os
 import numpy as np
 
-from ppo.tools.envs import VecNormalize, VecPyTorchFrameStack, make_vec_envs
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+from ppo.tools.envs import VecPyTorchFrameStack, make_vec_envs, make_env
+from ppo.tools.misc import get_vec_normalize, load_from_checkpoint
+from ppo.algo.ppo import PPO
+from ppo.parts.model import MasterPolicy
+from ppo.parts.storage import RolloutStorage
 import ppo.tools.stats as stats
 import ppo.tools.gifs as gifs
 
-from PIL import Image
 
-# Get a render function
-def get_render_func(venv):
-    if hasattr(venv, 'envs'):
-        return venv.envs[0].render
-    elif hasattr(venv, 'venv'):
-        return get_render_func(venv.venv)
-    elif hasattr(venv, 'env'):
-        return get_render_func(venv.env)
-
-    return None
+def create_envs(args, device):
+    args.render = False
+    envs = make_vec_envs(
+        args.env_name, args.seed, args.num_processes, args.gamma,
+        args.add_timestep, device, False, env_config=args)
+    return envs
 
 
-def get_vec_normalize(venv):
-    if isinstance(venv, VecNormalize):
-        return venv
-    elif hasattr(venv, 'venv'):
-        return get_vec_normalize(venv.venv)
-
-    return None
-
-
-# Necessary for my KFAC implementation.
-class AddBias(nn.Module):
-    def __init__(self, bias):
-        super(AddBias, self).__init__()
-        self._bias = nn.Parameter(bias.unsqueeze(1))
-
-    def forward(self, x):
-        if x.dim() == 2:
-            bias = self._bias.t().view(1, -1)
-        else:
-            bias = self._bias.t().view(1, -1, 1, 1)
-
-        return x + bias
+def create_render_env(args, device):
+    args.render = True
+    from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+    env_render_train = SubprocVecEnv([
+        make_env(args.env_name, args.seed, 0, args.add_timestep, False, args)])
+    args_eval = copy.deepcopy(args)
+    # make the evaluation horizon longer (if eval_max_length_factor > 1)
+    args_eval.max_length = int(args.max_length * args.eval_max_length_factor)
+    env_render_eval = SubprocVecEnv([
+        make_env(args.env_name, args.seed + args.num_processes, 0, args.add_timestep, False, args_eval)])
+    return env_render_train, env_render_eval
 
 
-def init(module, weight_init, bias_init, gain=1):
-    weight_init(module.weight.data, gain=gain)
-    bias_init(module.bias.data)
-    return module
+def create_policy(args, envs, device, action_space):
+    policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
+    if args.checkpoint_path:
+        load_from_checkpoint(policy, args.checkpoint_path, device)
+    return policy
 
 
-# https://github.com/openai/baselines/blob/master/baselines/common/tf_util.py#L87
-def init_normc_(weight, gain=1):
-    weight.normal_(0, 1)
-    weight *= gain / torch.sqrt(weight.pow(2).sum(1, keepdim=True))
+def create_agent(args, policy):
+    agent = PPO(
+        policy, args.clip_param, args.ppo_epoch, args.num_mini_batch, args.value_loss_coef,
+        args.entropy_coef, lr=args.lr, eps=args.eps, max_grad_norm=args.max_grad_norm)
+    return agent
 
 
-def seed_torch(args):
-    torch.manual_seed(args.seed)
-    if args.device == 'cuda':
-        torch.cuda.manual_seed(args.seed)
-    torch.set_num_threads(1)
+def init_rollout_storage(args, envs_train, env_render_train, policy, action_space, device):
+    num_master_steps_per_update = args.num_frames_per_update // args.timescale
+    rollouts = RolloutStorage(
+        num_master_steps_per_update, args.num_processes, envs_train.observation_space.shape,
+        action_space, policy.recurrent_hidden_state_size)
 
-def get_device(device):
-    assert device in ('cpu', 'cuda'), 'device should be in (cpu, cuda)'
-    if socket.gethostname() == 'gemini' or not torch.cuda.is_available():
-        device = torch.device("cpu")
-    else:
-        device = torch.device("cuda:0" if device == 'cuda' else "cpu")
-    return device
+    obs = envs_train.reset()
+    if env_render_train:
+        env_render_train.reset()
+    rollouts.obs[0].copy_(obs)
+    rollouts.to(device)
+    return rollouts, obs, num_master_steps_per_update
 
-def try_to_load_model(logdir):
-    loaded, loaded_tuple = False, None
-    for model_name in ('model_current.pt', 'model.pt'):
-        try:
-            loaded_tuple = torch.load(os.path.join(logdir, model_name))
-            print('loaded a policy from {}'.format(os.path.join(logdir, model_name)))
-            loaded = True
-            break
-        except Exception as e:
-            pass
-    return loaded, loaded_tuple
 
-def load_from_checkpoint(policy, path, device):
-    if device.type == 'cpu':
-        state_dict = torch.load(path, map_location=lambda storage, loc: storage)
-    else:
-        state_dict = torch.load(path)
-    state_dict = state_dict['net_state_dict']
-    # BC training produces names of weights with "module." in the beginning
-    state_dict_renamed = {}
-    for key, value in state_dict.items():
-        state_dict_renamed[key.replace('module.', '')] = value
-    policy.base.resnet.load_state_dict(state_dict_renamed)
-    print('loaded the BC checkpoint from {}'.format(path))
+def init_frozen_skills_check(obs, policy):
+    # GT to check whether the skills stay unchanged
+    test_tensor = obs.clone()
+    policy.base.resnet.eval()
+    skills_check, feat_check = policy.base.resnet(test_tensor)
+    return test_tensor, skills_check, feat_check
 
-def load_optimizer(optimizer, optimizer_state_dict, device):
-    optimizer.load_state_dict(optimizer_state_dict)
-    target_device = 'cpu' if device.type == 'cpu' else 'cuda'
-    for state in optimizer.state.values():
-        for k, v in state.items():
-            if isinstance(v, torch.Tensor):
-                state[k] = getattr(v, target_device)()
 
-def load_ob_rms(ob_rms, envs):
-    if ob_rms:
-        try:
-            get_vec_normalize(envs).ob_rms = ob_rms
-        except:
-            print('WARNING: did not manage to reuse the normalization statistics')
+def make_frozen_skills_check(policy, test_tensor, skills_check, feat_check):
+    # check if the skills do not change by the RL training
+    skills_after_upd, feat_after_upd = policy.base.resnet(test_tensor)
+    assert np.all(skills_after_upd == skills_check) and np.all(feat_after_upd == feat_check)
 
 def evaluate(policy, args_train, device, train_envs_or_ob_rms, eval_envs, env_render=None):
     args = copy.deepcopy(args_train)
@@ -173,6 +133,7 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, eval_envs, env_re
         eval_masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
     return eval_envs, stats_global, gifs_global
 
+
 def do_master_step(
         master_action, master_obs, master_timescale, policy, envs,
         hrlbc_setup=False, env_render=None, return_observations=False):
@@ -217,6 +178,7 @@ def do_master_step(
     else:
         return skill_obs, master_reward, master_done, infos, envs_history
 
+
 def reset_early_terminated_envs(envs, env_render, done, obs, device, num_frames=3):
     # TODO: replace this method with a flexible timescale
     # we use the master with a fixed timescale, so some envs receive the old master action after reset
@@ -246,3 +208,32 @@ def reset_early_terminated_envs(envs, env_render, done, obs, device, num_frames=
         if 0 in done_idxs:
             obs = envs.reset()
     return obs
+
+
+def perform_actions(action_sequence, observation, policy, envs, env_render, args):
+    # observation = envs.reset()
+    # if env_render:
+    #     env_render.reset()
+    if args.save_gifs:
+        gifs_global, gifs_local = gifs.init(args.num_processes)
+        done_before = np.array([False] * args.num_processes, dtype=np.bool)
+    else:
+        gifs_global = None
+    for action in action_sequence:
+        master_action_numpy = [[action] for _ in range(observation.shape[0])]
+        master_action = torch.Tensor(master_action_numpy).int()
+        observation, reward, done, _, observation_history = do_master_step(
+            master_action, observation, args.timescale, policy, envs,
+            args.hrlbc_setup,
+            env_render=env_render,
+            return_observations=True)
+        # TODO: change the gifs writing. so far works only when envs are done after the actions
+        if args.save_gifs:
+            gifs_global, gifs_local = gifs.update(
+                gifs_global, gifs_local, torch.tensor(master_action_numpy), done, done_before,
+                observation_history)
+            done_before = np.logical_or(done, done_before)
+        print('reward = {}'.format(reward[:, 0]))
+    if args.save_gifs:
+        gifs.save(os.path.join(args.logdir, args.timestamp), gifs_global, epoch=-1)
+

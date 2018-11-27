@@ -5,7 +5,8 @@ import torch
 from gym.spaces import Discrete
 
 from ppo.parts.model import MasterPolicy
-from ppo.tools.utils import load_from_checkpoint, do_master_step, seed_torch, get_device
+from ppo.tools.misc import load_from_checkpoint, seed_torch, get_device
+from ppo.tools.utils import do_master_step
 from ppo.tools.envs import make_vec_envs
 
 def get_args():

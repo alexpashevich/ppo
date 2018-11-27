@@ -7,7 +7,7 @@ import numpy as np
 
 from tensorboardX import SummaryWriter
 
-from ppo.tools.utils import get_vec_normalize
+from ppo.tools.misc import get_vec_normalize
 
 train_writer, eval_writer = None, None
 
