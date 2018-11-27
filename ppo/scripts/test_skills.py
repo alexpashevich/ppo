@@ -55,6 +55,7 @@ def _perform_actions(action_sequence, obs, envs, policy, args):
     info_glob = [{} for _ in range(args.num_processes)]
     for action in action_sequence:
         action = np.array([action for _ in range(args.num_processes)])
+        # TODO: fix it if the script is used, do_master_step args have changed
         if not args.use_bcrl_setup:
             action = torch.tensor(action)[None]
             _, reward_step, done_step, info_step = envs.step(action)
@@ -75,6 +76,7 @@ def _perform_actions(action_sequence, obs, envs, policy, args):
 
 
 def main():
+    raise DeprecationWarning
     args = get_args()
     device = get_device(args.device)
     seed_torch(args)

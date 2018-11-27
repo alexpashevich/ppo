@@ -56,7 +56,7 @@ def get_args():
     parser.add_argument('--eps', type=float, default=1e-5,
                         help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
     # hieararchy
-    parser.add_argument('--use-bcrl-setup', action='store_true', default=False,
+    parser.add_argument('--hrlbc-setup', action='store_true', default=False,
                         help='use the setup with pretrained with BC skills')
     parser.add_argument('--timescale', type=int, default=25,
                         help='master timescale')

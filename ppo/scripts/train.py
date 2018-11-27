@@ -39,8 +39,7 @@ def create_render_env(args, device):
 
 
 def create_policy(args, envs, device, action_space):
-    PolicyClass = MasterPolicy if args.use_bcrl_setup else Policy
-    policy = PolicyClass(envs.observation_space.shape, action_space, base_kwargs=vars(args))
+    policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
     if args.checkpoint_path:
         utils.load_from_checkpoint(policy, args.checkpoint_path, device)
     return policy
@@ -65,21 +64,17 @@ def _perform_actions(action_sequence, observation, policy, envs, env_render, arg
     for action in action_sequence:
         master_action_numpy = [[action] for _ in range(observation.shape[0])]
         master_action = torch.Tensor(master_action_numpy).int()
-        if not args.use_bcrl_setup:
-            observation, reward, _, _ = envs.step(master_action)
-            if env_render is not None:
-                env_render.step(master_action[:1].numpy())
-        else:
-            observation, reward, done, _, observation_history = utils.do_master_step(
-                master_action, observation, args.timescale, policy, envs, env_render,
-                return_observations=True)
-            # TODO: change the gifs writing. so far works only when envs are done after the actions
-            if args.save_gifs:
-                # saving gifs only works for the BCRL setup
-                gifs_global, gifs_local = gifs.update(
-                    gifs_global, gifs_local, torch.tensor(master_action_numpy), done, done_before,
-                    observation_history)
-                done_before = np.logical_or(done, done_before)
+        observation, reward, done, _, observation_history = utils.do_master_step(
+            master_action, observation, args.timescale, policy, envs,
+            args.hrlbc_setup,
+            env_render=env_render,
+            return_observations=True)
+        # TODO: change the gifs writing. so far works only when envs are done after the actions
+        if args.save_gifs:
+            gifs_global, gifs_local = gifs.update(
+                gifs_global, gifs_local, torch.tensor(master_action_numpy), done, done_before,
+                observation_history)
+            done_before = np.logical_or(done, done_before)
         print('reward = {}'.format(reward[:, 0]))
     if args.save_gifs:
         gifs.save(os.path.join(args.logdir, args.timestamp), gifs_global, epoch=-1)
@@ -98,16 +93,13 @@ def main():
         policy, optimizer_state_dict, ob_rms, start_epoch, args = loaded_tuple
     utils.seed_torch(args)
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
-    assert args.use_bcrl_setup or not args.save_gifs, 'Gifs are supported only for BCRL'
 
     # create the parallel envs
     envs = create_envs(args, device)
     eval_envs = None
-    # render_envs = create_render_env(args, device) if render else None
     env_render_train, env_render_eval = create_render_env(args, device) if render else (None, None)
     # create the policy
-    # TODO: refactor this later
-    action_space = Discrete(args.num_skills) if args.use_bcrl_setup else envs.action_space
+    action_space = Discrete(args.num_skills)
     if not loaded:
         policy = create_policy(args, envs, device, action_space)
         start_epoch = 0
@@ -153,17 +145,10 @@ def main():
                     rollouts.obs[step], rollouts.recurrent_hidden_states[step], rollouts.masks[step])
 
             # Observe reward and next obs
-            # TODO: refactor
-            if not args.use_bcrl_setup:
-                obs, reward, done, infos = envs.step(action)
-                if env_render_train is not None:
-                    env_render_train.step(action[:1].numpy())
-            else:
-                # start_step = time.time()
-                obs, reward, done, infos = utils.do_master_step(
-                    action, rollouts.obs[step], args.timescale, policy, envs, env_render_train)
-                # print('step_time = {}'.format(time.time() - start_step))
-                obs = utils.reset_early_terminated_envs(envs, env_render_train, done)
+            obs, reward, done, infos = utils.do_master_step(
+                action, rollouts.obs[step], args.timescale, policy, envs,
+                args.hrlbc_setup, env_render_train)
+            obs = utils.reset_early_terminated_envs(envs, env_render_train, done, obs, device)
 
             stats_global, stats_local = stats.update(
                 stats_global, stats_local, reward, done, infos, args)

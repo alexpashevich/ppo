@@ -1,12 +1,9 @@
-import os
 import gym
 import numpy as np
 import torch
 
 from collections import deque
 
-from baselines import bench
-from baselines.common.atari_wrappers import make_atari, wrap_deepmind
 from baselines.common.vec_env import VecEnvWrapper
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
@@ -53,11 +50,8 @@ def make_vec_envs(env_name, seed, num_processes, gamma, add_timestep,
 
     envs = VecPyTorch(envs, device)
 
-    # also stack frames for the pure PPO baseline
-    if 'Cam' in env_name and (env_config.use_bcrl_setup or env_config.use_direct_actions):
+    if 'Cam' in env_name:
         envs = VecPyTorchFrameStack(envs, 3, device)
-    # elif envs.observation_space.shape and len(envs.observation_space.shape) == 3:
-    #     envs = VecPyTorchFrameStack(envs, 4, device)
 
     return envs
 
@@ -159,7 +153,6 @@ class VecPyTorchFrameStack(VecEnvWrapper):
             self.device = torch.device('cpu')
         else:
             self.device = device
-        # self.stacked_obs = torch.zeros((venv.num_envs,) + low.shape).to(device)
         self.stacked_obs = [deque(maxlen=nstack) for _ in range(venv.num_envs)]
 
         observation_space = gym.spaces.Box(
@@ -175,30 +168,18 @@ class VecPyTorchFrameStack(VecEnvWrapper):
 
     def step_wait(self):
         obs, rews, news, infos = self.venv.step_wait()
-        # no need to do this with the deque
-        # self.stacked_obs[:, :-self.shape_dim0] = \
-        #     self.stacked_obs[:, self.shape_dim0:]
         for (i, new) in enumerate(news):
             self.stacked_obs[i].append(obs[i])
             if new:
                 for _ in range(self.nstack - 1):
                     self.stacked_obs[i].append(obs[i])
-            # if new:
-            #     # we do not want zeros, we want the first observation to be tiled
-            #     # self.stacked_obs[i] = 0
-            #     self.stacked_obs[i] = obs[i].repeat(self.nstack, 1, 1)
-        # self.stacked_obs[:, -self.shape_dim0:] = obs
         return self._deque_to_tensor(), rews, news, infos
 
     def reset(self):
         obs = self.venv.reset()
-        # self.stacked_obs.zero_()
-        # we do not want zeros, we want the first observation to be tiled
-        # self.stacked_obs[:, -self.shape_dim0:] = obs
         for i in range(len(obs)):
             for _ in range(self.nstack):
                 self.stacked_obs[i].append(obs[i])
-        # self.stacked_obs = obs.repeat(1, self.nstack, 1, 1)
         return self._deque_to_tensor()
 
     def close(self):

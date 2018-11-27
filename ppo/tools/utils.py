@@ -7,7 +7,7 @@ import copy
 import socket
 import numpy as np
 
-from ppo.tools.envs import VecNormalize, make_vec_envs
+from ppo.tools.envs import VecNormalize, VecPyTorchFrameStack, make_vec_envs
 import ppo.tools.stats as stats
 import ppo.tools.gifs as gifs
 
@@ -155,22 +155,17 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, eval_envs, env_re
                 obs, eval_recurrent_hidden_states, eval_masks, deterministic=True)
 
         # Observe reward and next obs
-        if not args.use_bcrl_setup:
-            obs, reward, done, infos = eval_envs.step(action)
-            if env_render is not None:
-                env_render.step(action[:1].numpy())
-        else:
-            master_step_output = do_master_step(
-                action, obs, args.timescale, policy, eval_envs, env_render,
-                return_observations=args.save_gifs)
-            obs, reward, done, infos = master_step_output[:4]
-            # we do not care about resetting the terminated environments
-            # obs = reset_early_terminated_envs(eval_envs, env_render, done)
-            if args.save_gifs:
-                # saving gifs only works for the BCRL setup
-                gifs_global, gifs_local = gifs.update(
-                    gifs_global, gifs_local, action, done, stats_local['done_before'],
-                    master_step_output[4])
+        master_step_output = do_master_step(
+            action, obs, args.timescale, policy, eval_envs,
+            hrlbc_setup=args.hrlbc_setup,
+            env_render=env_render,
+            return_observations=args.save_gifs)
+        obs, reward, done, infos = master_step_output[:4]
+        if args.save_gifs:
+            # saving gifs only works for the BCRL setup
+            gifs_global, gifs_local = gifs.update(
+                gifs_global, gifs_local, action, done, stats_local['done_before'],
+                master_step_output[4])
 
         stats_global, stats_local = stats.update(
             stats_global, stats_local, reward, done, infos, args, overwrite_terminated=False)
@@ -179,12 +174,8 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, eval_envs, env_re
 
 def do_master_step(
         master_action, master_obs, master_timescale, policy, envs,
-        env_render=None, print_master_action=False, return_observations=False):
-    # if print_master_action:
-    if True:
-        if hasattr(master_action, 'cpu'):
-            master_action = master_action.cpu().numpy()[:, 0]
-        print('master action = {}'.format(master_action))
+        hrlbc_setup=False, env_render=None, return_observations=False):
+    print('master action = {}'.format(master_action[:, 0]))
     master_reward = 0
     skill_obs = master_obs
     if return_observations:
@@ -192,10 +183,15 @@ def do_master_step(
                         'skill_actions': [[] for _ in range(master_action.shape[0])]}
     master_done = np.array([False] * master_action.shape[0])
     for _ in range(master_timescale):
-        with torch.no_grad():
-            skill_action = policy.get_worker_action(master_action, skill_obs)
+        if hrlbc_setup:
+            # get the skill action
+            with torch.no_grad():
+                skill_action = policy.get_worker_action(master_action, skill_obs)
+        else:
+            # it is not really a skill action, but we use this name to simplify the code
+            skill_action = master_action
         for env_id, done_before in enumerate(master_done):
-            # might be not the best thing to do but if the env is done (reset was called)
+            # might be not the beget the skill action
             # we apply the null action to it
             if done_before:
                 skill_action[env_id] = 0
@@ -220,8 +216,8 @@ def do_master_step(
     else:
         return skill_obs, master_reward, master_done, infos, envs_history
 
-def reset_early_terminated_envs(envs, env_render, done, num_frames=3):
-    # TODO: rewrite this method later
+def reset_early_terminated_envs(envs, env_render, done, obs, device, num_frames=3):
+    # TODO: replace this method with a flexible timescale
     # we use the master with a fixed timescale, so some envs receive the old master action after reset
     # we manually reset the envs that were terminated during the master step after it
     done_idxs = np.where(done)[0]
@@ -232,8 +228,12 @@ def reset_early_terminated_envs(envs, env_render, done, num_frames=3):
         env_render.reset()
     for idx in done_idxs:
         obs_numpy = remotes[idx].recv()
-        obs_torch = torch.from_numpy(obs_numpy).float().to(envs.venv.device)
-        for _ in range(num_frames):
-            envs.stacked_obs[idx].append(obs_torch)
-    obs = envs._deque_to_tensor()
+        obs_torch = torch.from_numpy(obs_numpy).float().to(device)
+        if isinstance(envs, VecPyTorchFrameStack):
+            for _ in range(num_frames):
+                envs.stacked_obs[idx].append(obs_torch)
+        else:
+            obs[idx] = obs_torch
+    if isinstance(envs, VecPyTorchFrameStack):
+        obs = envs._deque_to_tensor()
     return obs

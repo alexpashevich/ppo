@@ -65,12 +65,9 @@ def main():
         with torch.no_grad():
             value, action, _, _ = policy.act(obs, None, None, deterministic=args.det)
 
-        # Obser reward and next obs
-        if not config_old.use_bcrl_setup:
-            obs, reward, done, _ = env.step(action)
-        else:
-            obs, reward, done, _ = do_master_step(
-                action, obs, config_old.timescale, policy, env)
+        # Observe reward and next obs
+        obs, reward, done, _ = do_master_step(
+            action, obs, config_old.timescale, policy, env, config_old.hrlbc_setup)
         print('reward = {}'.format(reward.numpy()[0,0]))
 
 if __name__ == '__main__':
