@@ -20,9 +20,9 @@ args = parser.parse_args()
 
 UNITTESTS = [
     ['full state training on CPU',
-     'python -m ppo.scripts.train --env-name=UR5-BowlEnv-v0 --num-frames-per-update=50 --num-processes=2 --num-mini-batch=2 --timescale=25 --num-frames=100 --eval-interval=1 --timestamp=4H20 --logdir={}/unittest/test1/ --device=cpu'.format(args.logdir)],
+     'python -m ppo.scripts.train --env-name=UR5-BowlEnv-v0 --max-length=50 --num-processes=2 --num-mini-batch=2 --timescale=25 --num-frames=100 --eval-interval=1 --timestamp=4H20 --logdir={}/unittest/test1/ --device=cpu'.format(args.logdir)],
     ['HRLBC training',
-     'python -m ppo.scripts.train --env-name=UR5-SaladCamEnv-v0 --num-frames-per-update=10 --num-processes=2 --num-mini-batch=2 --timescale=5 --num-frames=20 --eval-interval=1 --hrlbc-setup --checkpoint-path={} --dim-skill-action=8 --num-skill-action-pred=4 --num-skills=6 --archi=resnet18_featbranch --input-type=rgbd --timestamp=4H20 --logdir={}/unittest/test2/'.format(args.resnet18_branch_checkpoint_path, args.logdir)],
+     'python -m ppo.scripts.train --env-name=UR5-SaladCamEnv-v0 --max-length=10 --num-processes=2 --num-mini-batch=2 --timescale=5 --num-frames=20 --eval-interval=1 --hrlbc-setup --checkpoint-path={} --dim-skill-action=8 --num-skill-action-pred=4 --num-skills=6 --archi=resnet18_featbranch --input-type=rgbd --timestamp=4H20 --logdir={}/unittest/test2/'.format(args.resnet18_branch_checkpoint_path, args.logdir)],
     ['loading the policy with enjoy.py',
      'python -m ppo.scripts.enjoy --load-path={}/unittest/test2/4H20 --num-whiles=1 --no-render'.format(args.logdir)]]
     # ['test skills of a BC checkpoint',

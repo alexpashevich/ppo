@@ -8,6 +8,7 @@ import socket
 import numpy as np
 
 from ppo.tools.envs import VecNormalize, VecPyTorchFrameStack, make_vec_envs
+from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 import ppo.tools.stats as stats
 import ppo.tools.gifs as gifs
 
@@ -221,19 +222,27 @@ def reset_early_terminated_envs(envs, env_render, done, obs, device, num_frames=
     # we use the master with a fixed timescale, so some envs receive the old master action after reset
     # we manually reset the envs that were terminated during the master step after it
     done_idxs = np.where(done)[0]
-    remotes = envs.venv.venv.remotes
-    for idx in done_idxs:
-        remotes[idx].send(('reset', None))
+    if isinstance(envs, SubprocVecEnv):
+        # we have several envs
+        remotes = envs.venv.venv.remotes
+        for idx in done_idxs:
+            remotes[idx].send(('reset', None))
     if env_render and done[0]:
         env_render.reset()
-    for idx in done_idxs:
-        obs_numpy = remotes[idx].recv()
-        obs_torch = torch.from_numpy(obs_numpy).float().to(device)
+    if isinstance(envs, SubprocVecEnv):
+        for idx in done_idxs:
+            # we have several envs
+            obs_numpy = remotes[idx].recv()
+            obs_torch = torch.from_numpy(obs_numpy).float().to(device)
+            if isinstance(envs, VecPyTorchFrameStack):
+                for _ in range(num_frames):
+                    envs.stacked_obs[idx].append(obs_torch)
+            else:
+                obs[idx] = obs_torch
         if isinstance(envs, VecPyTorchFrameStack):
-            for _ in range(num_frames):
-                envs.stacked_obs[idx].append(obs_torch)
-        else:
-            obs[idx] = obs_torch
-    if isinstance(envs, VecPyTorchFrameStack):
-        obs = envs._deque_to_tensor()
+            obs = envs._deque_to_tensor()
+    else:
+        # DummyVecEnv is used, we have only one env
+        if 0 in done_idxs:
+            obs = envs.reset()
     return obs

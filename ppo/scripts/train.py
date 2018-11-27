@@ -181,7 +181,7 @@ def main():
                 value_loss, dist_entropy)
 
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
-        if render or (len(stats_global['length']) > 1 and is_eval_time):
+        if render or (len(stats_global['length']) > 0 and is_eval_time):
             log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
             if not args.eval_offline:
                 eval_envs, stats_eval, gifs_eval = utils.evaluate(

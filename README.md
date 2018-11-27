@@ -5,7 +5,7 @@ Make sure that the MiME and the BC repos are in your `$PYTHONPATH`. All the exec
 ## How to run the RL training
 To train you need to run something like:
 ```bash
-python3 -m ppo.scripts.train --env UR5-BowlCamEnv-v0 --value-loss-coef=1 --entropy-coef=0.05 --device=cuda --num-eval-episodes=32 --num-frames-per-update=600 --max-length=600 --timescale=60 --num-processes=8 --num-mini-batch=4 --hrlbc-setup --archi=resnet18_featbranch --num-skill-action-pred=4 --dim-skill-action=8 --input-type=depth --log-interval=1  --eval-interval=5 --eval-max-length-factor=1.5 --save-gifs --checkpoint-path={}.pth --logdir={} --seed={}
+python3 -m ppo.scripts.train --env UR5-BowlCamEnv-v0 --value-loss-coef=1 --entropy-coef=0.05 --device=cuda --num-eval-episodes=32 --max-length=600 --timescale=60 --num-processes=8 --num-mini-batch=4 --hrlbc-setup --archi=resnet18_featbranch --num-skill-action-pred=4 --dim-skill-action=8 --input-type=depth --log-interval=1  --eval-interval=5 --eval-max-length-factor=1.5 --save-gifs --checkpoint-path={}.pth --logdir={} --seed={}
 ```
 By default the values are `--num-skills=4 --dim-skill-action=8 --num-skill-action-pred=4 --archi=resnet18_featbranch`.
 
