@@ -144,6 +144,7 @@ def do_master_step(
         envs_history = {'observations': [[] for _ in range(master_action.shape[0])],
                         'skill_actions': [[] for _ in range(master_action.shape[0])]}
     master_done = np.array([False] * master_action.shape[0])
+    master_infos = np.array([None] * master_action.shape[0])
     for _ in range(master_timescale):
         if hrlbc_setup:
             # get the skill action
@@ -170,38 +171,44 @@ def do_master_step(
         # we do not add the rewards after reset
         reward[np.where(master_done)] = 0
         master_reward += reward
+        terminated_right_now = np.logical_and(np.logical_not(master_done), done)
+        master_infos[np.where(terminated_right_now)] = np.array(infos)[np.where(terminated_right_now)]
         master_done = np.logical_or(master_done, done)
         if master_done.all():
             break
     if not return_observations:
-        return skill_obs, master_reward, master_done, infos
+        return skill_obs, master_reward, master_done, master_infos
     else:
-        return skill_obs, master_reward, master_done, infos, envs_history
+        return skill_obs, master_reward, master_done, master_infos, envs_history
 
 
 def reset_early_terminated_envs(envs, env_render, done, obs, device, num_frames=3):
     # TODO: replace this method with a flexible timescale
     # we use the master with a fixed timescale, so some envs receive the old master action after reset
     # we manually reset the envs that were terminated during the master step after it
+    # TODO: it also resets the envs that were just reset
     done_idxs = np.where(done)[0]
-    if isinstance(envs, SubprocVecEnv):
+    if isinstance(envs.venv.venv, SubprocVecEnv):
         # we have several envs
         remotes = envs.venv.venv.remotes
         for idx in done_idxs:
             remotes[idx].send(('reset', None))
     if env_render and done[0]:
         env_render.reset()
-    if isinstance(envs, SubprocVecEnv):
+    if isinstance(envs.venv.venv, SubprocVecEnv):
+        # we use several envs in a batch
         for idx in done_idxs:
-            # we have several envs
             obs_numpy = remotes[idx].recv()
             obs_torch = torch.from_numpy(obs_numpy).float().to(device)
             if isinstance(envs, VecPyTorchFrameStack):
+                # observations are images
                 for _ in range(num_frames):
                     envs.stacked_obs[idx].append(obs_torch)
             else:
+                # observations are full states, no need to stack last 3 states
                 obs[idx] = obs_torch
         if isinstance(envs, VecPyTorchFrameStack):
+            # observations are images
             obs = envs._deque_to_tensor()
     else:
         # DummyVecEnv is used, we have only one env

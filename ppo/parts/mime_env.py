@@ -165,6 +165,8 @@ class MiMEEnv(object):
             action_applied = self._action_numpy_to_dict(action)
         else:
             if self._prev_script != action:
+                if self._render:
+                    print('got a new script for env {}'.format(self._id))
                 self._prev_script = action
                 self._prev_action_chain = self.env.unwrapped.scene.script_subtask(action)
             action_chain = itertools.chain(*self._prev_action_chain)

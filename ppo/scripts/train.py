@@ -46,16 +46,16 @@ def init_training(args):
 
     if loaded_tuple:
         # load normalization and optimizer statistics
-        utils.load_ob_rms(ob_rms, envs_train)
-        utils.load_optimizer(agent.optimizer, optimizer_state_dict, device)
+        misc.load_ob_rms(ob_rms, envs_train)
+        misc.load_optimizer(agent.optimizer, optimizer_state_dict, device)
 
     all_envs = envs_train, envs_eval, env_render_train, env_render_eval
-    return logdir, device, all_envs, policy, start_epoch, agent, action_space
+    return logdir, args, device, all_envs, policy, start_epoch, agent, action_space
 
 
 def main():
     args = get_args()
-    logdir, device, all_envs, policy, start_epoch, agent, action_space = init_training(args)
+    logdir, args, device, all_envs, policy, start_epoch, agent, action_space = init_training(args)
     envs_train, envs_eval, env_render_train, env_render_eval = all_envs
     rollouts, obs, num_master_steps_per_update = utils.init_rollout_storage(
         args, envs_train, env_render_train, policy, action_space, device)
@@ -70,7 +70,7 @@ def main():
 
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
-        utils.perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs_train, None, args)
+        # utils.perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs_train, None, args)
         import pudb; pudb.set_trace()
     for epoch in range(start_epoch, num_updates):
         print('Starting epoch {}'.format(epoch))
@@ -118,7 +118,7 @@ def main():
         if args.render or (len(stats_global['length']) > 0 and is_eval_time):
             log.save_model(logdir, policy, agent.optimizer, epoch, device, envs_train, args, eval=True)
             if not args.eval_offline:
-                envs_train, stats_eval, gifs_eval = utils.evaluate(
+                envs_eval, stats_eval, gifs_eval = utils.evaluate(
                     policy, args, device, envs_train, envs_eval, env_render_eval)
                 log.log_eval(total_num_env_steps, stats_eval)
                 if gifs_eval:
