@@ -49,7 +49,7 @@ class MiMEEnv(object):
             self.action_mean, self.action_std = None, None
 
         self.image_transform = transforms.Compose([transforms.ToPILImage(),
-                                                   # transforms.Resize([224, 224]),
+                                                   transforms.Resize([224, 224]),
                                                    transforms.ToTensor(),
                                                    transforms.Normalize((0.5, 0.5), (0.5, 0.5))])
 
