@@ -56,7 +56,7 @@ class MiMEEnv(object):
     def _load_action_stats(self, checkpoint_path):
         checkpoint_dir = '/'.join(checkpoint_path.split('/')[:-1])
         infos_path = os.path.join(checkpoint_dir, 'info.json')
-        stats = json.load(open(infos_path, 'r'))['statistics'][0]
+        stats = json.load(open(infos_path, 'r'))['statistics']
         # get network dataset statistics
         mean, std = {}, {}
         for action_key in self.action_keys:

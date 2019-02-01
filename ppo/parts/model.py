@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torchvision import transforms
 
 from ppo.parts.distributions import Categorical, DiagGaussian
@@ -8,9 +7,11 @@ from ppo.tools.misc import init, init_normc_
 
 from bc.net.architectures import resnet
 
+
 class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
+
 
 class Policy(nn.Module):
     def __init__(self, obs_shape, action_space, base_kwargs=None):
@@ -36,6 +37,16 @@ class Policy(nn.Module):
             self.dist = DiagGaussian(self.base.output_size, num_outputs)
         else:
             raise NotImplementedError
+
+        if 'master' in base_kwargs['archi']:
+            # copy the last pretrained layer from the BC master
+            # TODO: refactor this if is used in the future
+            last_master_layer = self.base.resnet.fcs[-1][-1]
+            assert last_master_layer.weight.data.shape[0] == num_outputs
+            # self.dist.linear.weight.data = torch.tensor(last_master_layer.weight.data)
+            # self.dist.linear.bias.data = torch.tensor(last_master_layer.bias.data)
+            self.dist.linear.weight.data = last_master_layer.weight.data
+            self.dist.linear.bias.data = last_master_layer.bias.data
 
     @property
     def is_recurrent(self):
@@ -260,13 +271,18 @@ class ResnetBase(NNBase):
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0))
 
-        self.actor = nn.Sequential(
-            Flatten(),
-            init_(nn.Linear(512, hidden_size)),
-            nn.Tanh(),
-            init_(nn.Linear(hidden_size, hidden_size)),
-            nn.Tanh()
-        )
+        if 'master' not in archi:
+            self.actor = nn.Sequential(
+                Flatten(),
+                init_(nn.Linear(512, hidden_size)),
+                nn.Tanh(),
+                init_(nn.Linear(hidden_size, hidden_size)),
+                nn.Tanh()
+            )
+        else:
+            # use the pretrained layers of the master
+            # self.actor does not include the last layer [hidden_size -> action_size] so we cut [:-1]
+            self.actor = self.resnet.fcs[-1][:-1]
 
         self.critic = nn.Sequential(
             Flatten(),
