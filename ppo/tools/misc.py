@@ -67,7 +67,31 @@ def try_to_load_model(logdir):
             pass
     return loaded_tuple
 
-def load_from_checkpoint(policy, path, device):
+# dirty stuff, TODO: refactor later
+def map_state_dict_key(key, num_skills):
+    fcs_idx = int(key.replace('base.resnet.fcs.', '').split('.')[0])
+    layer_idx, suffix = key.replace('base.resnet.fcs.', '').split('.')[1:]
+    layer_idx = int(layer_idx)
+    if fcs_idx < num_skills:
+        # this is a part of the skills
+        if layer_idx in {0, 2}:
+            # first two fc layers, should go to the hidden actor
+            key_new = 'base.actor_skills.{}.{}.{}'.format(fcs_idx, layer_idx + 1, suffix)
+        else:
+            # layer layer, should go to the dist
+            key_new = 'dist_skills.{}.fc_mean.{}'.format(fcs_idx, suffix)
+    else:
+        # this is a part of the master
+        if layer_idx in {0, 2}:
+            # first two fc layers, should go to the hidden actor
+            key_new = 'base.actor.{}.{}'.format(layer_idx + 1, suffix)
+        else:
+            # layer layer, should go to the dist
+            key_new = 'dist.linear.{}'.format(suffix)
+    return key_new
+
+
+def load_from_checkpoint(policy, path, device, learn_skills=False):
     if device.type == 'cpu':
         state_dict = torch.load(path, map_location=lambda storage, loc: storage)
     else:
@@ -76,8 +100,23 @@ def load_from_checkpoint(policy, path, device):
     # BC training produces names of weights with "module." in the beginning
     state_dict_renamed = {}
     for key, value in state_dict.items():
-        state_dict_renamed[key.replace('module.', '')] = value
-    policy.base.resnet.load_state_dict(state_dict_renamed)
+        state_dict_renamed[key.replace('module.', 'base.resnet.')] = value
+    if learn_skills:
+        state_dict_correct = {}
+        for key, value in state_dict_renamed.items():
+            if 'fcs' not in key:
+                key_new = key
+            else:
+                key_new = map_state_dict_key(key, policy.base.num_skills)
+            if 'dist_skills' in key_new:
+                skill_action_dim = policy.dist_skills[0].fc_mean.weight.shape[0]
+                value = value[:skill_action_dim]
+            state_dict_correct[key_new] = value
+        state_dict_renamed = state_dict_correct
+
+    # policy.base.resnet.load_state_dict(state_dict_renamed, strict=not learn_skills)
+    # TODO: the strict param is for critics and the dist_skills std, remove it later
+    policy.load_state_dict(state_dict_renamed, strict=not learn_skills)
     print('loaded the BC checkpoint from {}'.format(path))
 
 def load_optimizer(optimizer, optimizer_state_dict, device):

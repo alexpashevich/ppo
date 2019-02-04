@@ -2,7 +2,7 @@ import os
 import time
 import torch
 import numpy as np
-from gym.spaces import Discrete
+from gym.spaces import Discrete, Box
 
 import ppo.tools.misc as misc
 import ppo.tools.log as log
@@ -57,8 +57,9 @@ def main():
     args = get_args()
     logdir, args, device, all_envs, policy, start_epoch, agent, action_space = init_training(args)
     envs_train, envs_eval, env_render_train, env_render_eval = all_envs
-    rollouts, obs, num_master_steps_per_update = utils.init_rollout_storage(
-        args, envs_train, env_render_train, policy, action_space, device)
+    action_space_skills = Box(-np.inf, np.inf, (args.dim_skill_action,), dtype=np.float)
+    rollouts, rollouts_skills, obs, num_master_steps_per_update = utils.init_rollout_storage(
+        args, envs_train, env_render_train, policy, action_space, action_space_skills, device)
 
     num_updates = int(args.num_frames) // args.num_frames_per_update // args.num_processes
 
@@ -66,7 +67,7 @@ def main():
     start = time.time()
 
     if hasattr(policy.base, 'resnet'):
-        test_tensor, skills_check, feat_check = utils.init_frozen_skills_check(obs, policy)
+        test_tensor, feat_check = utils.init_frozen_skills_check(obs, policy)
 
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
@@ -82,8 +83,8 @@ def main():
 
             # Observe reward and next obs
             obs, reward, done, infos = utils.do_master_step(
-                action, rollouts.obs[step], args.timescale, policy, envs_train,
-                args.hrlbc_setup, env_render_train)
+                action, rollouts.obs[step], args.timescale, policy, envs_train, rollouts_skills,
+                args.hrlbc_setup, env_render_train, learn_skills=args.learn_skills)
             obs = utils.reset_early_terminated_envs(envs_train, env_render_train, done, obs, device)
 
             stats_global, stats_local = stats.update(
@@ -93,16 +94,27 @@ def main():
             masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
             rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks)
 
+        # master policy training
         with torch.no_grad():
             next_value = policy.get_value(
                 rollouts.obs[-1], rollouts.recurrent_hidden_states[-1], rollouts.masks[-1]).detach()
-
         rollouts.compute_returns(next_value, args.use_gae, args.gamma, args.tau)
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
 
+        if args.learn_skills:
+            # skills policies training
+            with torch.no_grad():
+                next_value_skills = policy.get_value_skills(
+                    rollouts_skills.obs[-1], None, None, action).detach()
+            rollouts_skills.compute_returns(next_value_skills, args.use_gae, args.gamma, args.tau)
+            value_skills_loss, action_skills_loss, dist_entropy_skills = agent.update(
+                rollouts_skills, skills_update=True)
+            rollouts_skills.after_update()
+
+        # TODO: log skill losses
         if hasattr(policy.base, 'resnet'):
-            utils.make_frozen_skills_check(policy, test_tensor, skills_check, feat_check)
+            utils.make_frozen_skills_check(policy, test_tensor, feat_check)
 
         if epoch % args.save_interval == 0:
             log.save_model(logdir, policy, agent.optimizer, epoch, device, envs_train, args, eval=True)
