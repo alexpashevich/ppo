@@ -73,15 +73,17 @@ def init_rollout_storage(
 
 def init_frozen_skills_check(obs, policy):
     # GT to check whether the skills stay unchanged
-    test_tensor = obs.clone()
-    policy.base.resnet.eval()
-    feat_check = policy.base.resnet(test_tensor)
+    with torch.no_grad():
+        test_tensor = obs.clone()
+        policy.base.resnet.eval()
+        feat_check = policy.base.resnet(test_tensor)
     return test_tensor, feat_check
 
 
 def make_frozen_skills_check(policy, test_tensor, feat_check):
     # check if the skills do not change by the RL training
-    feat_after_upd = policy.base.resnet(test_tensor)
+    with torch.no_grad():
+        feat_after_upd = policy.base.resnet(test_tensor)
     # assert (skills_after_upd == skills_check).all() and (feat_after_upd == feat_check).all()
     assert (feat_after_upd == feat_check).all()
 
@@ -167,7 +169,7 @@ def do_master_step(
                     skill_action = policy.get_worker_action(master_action, skill_obs)
                 else:
                     skill_value, skill_action, skill_action_log_prob, _ = policy.act_skill(
-                        skill_obs, master_action, None, None, deterministic=evaluation)
+                        skill_obs, torch.zeros_like(master_action), None, None, deterministic=evaluation)
         else:
             # it is not really a skill action, but we use this name to simplify the code
             skill_action = master_action
@@ -183,13 +185,14 @@ def do_master_step(
         if rollouts_skills is not None and learn_skills:
             rollouts_skills.insert(
                 skill_obs,
-                torch.zeros_like(skill_action_log_prob),
+                torch.zeros_like(skill_action_log_prob),  # recurrent hidden states
                 skill_action,
                 skill_action_log_prob,
                 skill_value,
                 reward,
                 skill_masks,
-                master_action)
+                torch.zeros_like(master_action))
+                # master_action.detach())
         if env_render is not None:
             env_render.step(skill_action[:1].cpu().numpy())
         if return_observations:

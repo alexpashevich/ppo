@@ -30,7 +30,7 @@ def add_summary(tag, value, iter, stage='train'):
     writer.add_scalar(tag, value, iter)
 
 
-def log_train(total_steps, start, stats, action_loss, value_loss, entropy):
+def log_train(total_steps, start, stats, action_loss, value_loss, entropy, skills_losses):
     end = time.time()
     print("Training after {} steps, FPS {}".format(
         total_steps, int(total_steps / (end - start))))
@@ -45,6 +45,11 @@ def log_train(total_steps, start, stats, action_loss, value_loss, entropy):
     add_summary('loss/action_loss', action_loss, total_steps)
     add_summary('loss/value_loss', value_loss, total_steps)
     add_summary('loss/entropy', entropy, total_steps)
+    action_skills_loss, value_skills_loss, entropy_skills = skills_losses
+    if skills_losses[0] is not None:
+        add_summary('loss/action_skills_loss', action_skills_loss, total_steps)
+        add_summary('loss/value_skills_loss', value_skills_loss, total_steps)
+        add_summary('loss/entropy_skills', entropy_skills, total_steps)
 
 
 def log_eval(total_steps, stats):

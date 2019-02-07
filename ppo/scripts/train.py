@@ -108,11 +108,12 @@ def main():
                 next_value_skills = policy.get_value_skills(
                     rollouts_skills.obs[-1], None, None, action).detach()
             rollouts_skills.compute_returns(next_value_skills, args.use_gae, args.gamma, args.tau)
-            value_skills_loss, action_skills_loss, dist_entropy_skills = agent.update(
+            skills_losses = agent.update(
                 rollouts_skills, skills_update=True)
             rollouts_skills.after_update()
+        else:
+            skills_losses = None, None, None
 
-        # TODO: log skill losses
         if hasattr(policy.base, 'resnet'):
             utils.make_frozen_skills_check(policy, test_tensor, feat_check)
 
@@ -124,7 +125,7 @@ def main():
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
                 total_num_env_steps, start, stats_global, action_loss,
-                value_loss, dist_entropy)
+                value_loss, dist_entropy, skills_losses)
 
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
         if args.render or (len(stats_global['length']) > 0 and is_eval_time):
