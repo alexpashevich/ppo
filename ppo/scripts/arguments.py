@@ -99,9 +99,6 @@ def get_args():
                         help='whether to directly use RL to command the agent (no master)')
     parser.add_argument('--pretrained', action='store_true', default=False,
                         help='whether to use the pretrained ImageNet layers of ResNet')
-    # cvpr rebuttal baseline
-    parser.add_argument('--learn-skills', action='store_true', default=False,
-                        help='whether to learn the skills policies')
 
     args = parser.parse_args()
     args.recurrent_policy = False  # turn off recurrent policies support

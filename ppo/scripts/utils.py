@@ -8,7 +8,7 @@ from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from ppo.tools.envs import VecPyTorchFrameStack, make_vec_envs, make_env
 from ppo.tools.misc import get_vec_normalize, load_from_checkpoint
 from ppo.algo.ppo import PPO
-from ppo.parts.model import MasterPolicy, HierarchicalPolicy
+from ppo.parts.model import MasterPolicy
 from ppo.parts.storage import RolloutStorage
 import ppo.tools.stats as stats
 import ppo.tools.gifs as gifs
@@ -36,12 +36,9 @@ def create_render_env(args, device):
 
 
 def create_policy(args, envs, device, action_space):
-    if not args.learn_skills:
-        policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
-    else:
-        policy = HierarchicalPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
+    policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
     if args.checkpoint_path:
-        load_from_checkpoint(policy, args.checkpoint_path, device, args.learn_skills)
+        load_from_checkpoint(policy, args.checkpoint_path, device)
     return policy
 
 
@@ -55,37 +52,36 @@ def create_agent(args, policy):
 def init_rollout_storage(
         args, envs_train, env_render_train, policy, action_space, action_space_skills, device):
     num_master_steps_per_update = args.num_frames_per_update // args.timescale
-    rollouts_master = RolloutStorage(
+    rollouts = RolloutStorage(
         num_master_steps_per_update, args.num_processes, envs_train.observation_space.shape,
         action_space, policy.recurrent_hidden_state_size)
-    rollouts_skills = RolloutStorage(
-        args.num_frames_per_update, args.num_processes, envs_train.observation_space.shape,
-        action_space_skills, policy.recurrent_hidden_state_size)
 
     obs = envs_train.reset()
     if env_render_train:
         env_render_train.reset()
-    for rollouts in (rollouts_master, rollouts_skills):
-        rollouts.obs[0].copy_(obs)
-        rollouts.to(device)
-    return rollouts_master, rollouts_skills, obs, num_master_steps_per_update
+    rollouts.obs[0].copy_(obs)
+    rollouts.to(device)
+    return rollouts, obs, num_master_steps_per_update
 
 
 def init_frozen_skills_check(obs, policy):
     # GT to check whether the skills stay unchanged
     with torch.no_grad():
         test_tensor = obs.clone()
+        test_master = np.random.randint(0, policy.base.num_skills, len(obs))
         policy.base.resnet.eval()
-        feat_check = policy.base.resnet(test_tensor)
-    return test_tensor, feat_check
+        features_check = policy.base.resnet(test_tensor)
+        skills_check = policy.base(test_tensor, None, None, test_master)
+    return test_tensor, test_master, features_check, skills_check
 
 
-def make_frozen_skills_check(policy, test_tensor, feat_check):
+def make_frozen_skills_check(policy, test_tensor, test_master, feature_check, skills_check):
     # check if the skills do not change by the RL training
     with torch.no_grad():
-        feat_after_upd = policy.base.resnet(test_tensor)
-    # assert (skills_after_upd == skills_check).all() and (feat_after_upd == feat_check).all()
-    assert (feat_after_upd == feat_check).all()
+        features_after_upd = policy.base.resnet(test_tensor)
+        skills_after_upd = policy.base(test_tensor, None, None, test_master)
+    assert (features_after_upd == feature_check).all()
+    assert (skills_after_upd == skills_check).all()
 
 
 def evaluate(policy, args_train, device, train_envs_or_ob_rms, eval_envs, env_render=None):
@@ -133,7 +129,6 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, eval_envs, env_re
             hrlbc_setup=args.hrlbc_setup,
             env_render=env_render,
             return_observations=args.save_gifs,
-            learn_skills=args.learn_skills,
             evaluation=True)
         obs, reward, done, infos = master_step_output[:4]
         if args.save_gifs:
@@ -149,9 +144,8 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, eval_envs, env_re
 
 
 def do_master_step(
-        master_action, master_obs, master_timescale, policy, envs, rollouts_skills=None,
-        hrlbc_setup=False, env_render=None, return_observations=False, learn_skills=False,
-        evaluation=False):
+        master_action, master_obs, master_timescale, policy, envs,
+        hrlbc_setup=False, env_render=None, return_observations=False, evaluation=False):
     print('master action = {}'.format(master_action[:, 0]))
     master_reward = 0
     skill_obs = master_obs
@@ -163,13 +157,8 @@ def do_master_step(
     for _ in range(master_timescale):
         if hrlbc_setup:
             # get the skill action
-            # TODO: refactor
             with torch.no_grad():
-                if not learn_skills:
-                    skill_action = policy.get_worker_action(master_action, skill_obs)
-                else:
-                    skill_value, skill_action, skill_action_log_prob, _ = policy.act_skill(
-                        skill_obs, torch.zeros_like(master_action), None, None, deterministic=evaluation)
+                skill_action = policy.get_worker_action(master_action, skill_obs)
         else:
             # it is not really a skill action, but we use this name to simplify the code
             skill_action = master_action
@@ -179,20 +168,6 @@ def do_master_step(
             if done_before:
                 skill_action[env_id] = 0
         skill_obs, reward, done, infos = envs.step(skill_action)
-        # TODO: what if done???
-        skill_masks = torch.FloatTensor([[0.0] if done_ or master_done_ else [1.0]
-                                         for done_, master_done_ in zip(done, master_done)])
-        if rollouts_skills is not None and learn_skills:
-            rollouts_skills.insert(
-                skill_obs,
-                torch.zeros_like(skill_action_log_prob),  # recurrent hidden states
-                skill_action,
-                skill_action_log_prob,
-                skill_value,
-                reward,
-                skill_masks,
-                torch.zeros_like(master_action))
-                # master_action.detach())
         if env_render is not None:
             env_render.step(skill_action[:1].cpu().numpy())
         if return_observations:
@@ -267,8 +242,7 @@ def perform_actions(action_sequence, observation, policy, envs, env_render, args
             master_action, observation, args.timescale, policy, envs,
             args.hrlbc_setup,
             env_render=env_render,
-            return_observations=True,
-            learn_skills=args.learn_skills)
+            return_observations=True)
         # TODO: change the gifs writing. so far works only when envs are done after the actions
         if args.save_gifs:
             gifs_global, gifs_local = gifs.update(

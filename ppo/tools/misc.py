@@ -69,54 +69,41 @@ def try_to_load_model(logdir):
 
 # dirty stuff, TODO: refactor later
 def map_state_dict_key(key, num_skills):
-    fcs_idx = int(key.replace('base.resnet.fcs.', '').split('.')[0])
-    layer_idx, suffix = key.replace('base.resnet.fcs.', '').split('.')[1:]
+    # BC training produces names of weights with "module." in the beginning
+    if 'fcs' not in key:
+        return key.replace('module.', 'base.resnet.')
+    fcs_idx = int(key.replace('module.fcs.', '').split('.')[0])
+    layer_idx, suffix = key.replace('module.fcs.', '').split('.')[1:]
     layer_idx = int(layer_idx)
     if fcs_idx < num_skills:
         # this is a part of the skills
-        if layer_idx in {0, 2}:
-            # first two fc layers, should go to the hidden actor
-            key_new = 'base.actor_skills.{}.{}.{}'.format(fcs_idx, layer_idx + 1, suffix)
-        else:
-            # layer layer, should go to the dist
-            key_new = 'dist_skills.{}.fc_mean.{}'.format(fcs_idx, suffix)
+        key_new = 'base.skills.{}.{}.{}'.format(fcs_idx, layer_idx, suffix)
     else:
         # this is a part of the master
         if layer_idx in {0, 2}:
             # first two fc layers, should go to the hidden actor
-            key_new = 'base.actor.{}.{}'.format(layer_idx + 1, suffix)
+            key_new = 'base.actor.{}.{}'.format(layer_idx, suffix)
         else:
-            # layer layer, should go to the dist
+            # last layer, should go to the dist
             key_new = 'dist.linear.{}'.format(suffix)
     return key_new
 
 
-def load_from_checkpoint(policy, path, device, learn_skills=False):
+def load_from_checkpoint(policy, path, device):
     if device.type == 'cpu':
         state_dict = torch.load(path, map_location=lambda storage, loc: storage)
     else:
         state_dict = torch.load(path)
     state_dict = state_dict['net_state_dict']
-    # BC training produces names of weights with "module." in the beginning
     state_dict_renamed = {}
     for key, value in state_dict.items():
-        state_dict_renamed[key.replace('module.', 'base.resnet.')] = value
-    if learn_skills:
-        state_dict_correct = {}
-        for key, value in state_dict_renamed.items():
-            if 'fcs' not in key:
-                key_new = key
-            else:
-                key_new = map_state_dict_key(key, policy.base.num_skills)
-            if 'dist_skills' in key_new:
-                skill_action_dim = policy.dist_skills[0].fc_mean.weight.shape[0]
-                value = value[:skill_action_dim]
-            state_dict_correct[key_new] = value
-        state_dict_renamed = state_dict_correct
+        key_new = map_state_dict_key(key, policy.base.num_skills)
+        state_dict_renamed[key_new] = value
 
-    # policy.base.resnet.load_state_dict(state_dict_renamed, strict=not learn_skills)
-    # TODO: the strict param is for critics and the dist_skills std, remove it later
-    policy.load_state_dict(state_dict_renamed, strict=not learn_skills)
+    keys_diffence = set(policy.state_dict().keys()) - set(state_dict_renamed)
+    # the strict param is for the critics layers only
+    assert all(['base.critic' in key for key in keys_diffence])
+    policy.load_state_dict(state_dict_renamed, strict=False)
     print('loaded the BC checkpoint from {}'.format(path))
 
 def load_optimizer(optimizer, optimizer_state_dict, device):

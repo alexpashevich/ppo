@@ -38,15 +38,6 @@ class Policy(nn.Module):
         else:
             raise NotImplementedError
 
-        if 'learn_skills' in base_kwargs and base_kwargs['learn_skills']:
-            num_outputs = action_space.n
-            skill_action_dim = base_kwargs['skill_action_dim']
-            self.dist_skills = []
-            for skill in range(num_outputs):
-                dist_skill = DiagGaussian(self.base.output_size, skill_action_dim)
-                self.dist_skills.append(dist_skill)
-            self.dist_skills = nn.ModuleList(self.dist_skills)
-
 
     @property
     def is_recurrent(self):
@@ -95,49 +86,6 @@ class MasterPolicy(Policy):
     def get_worker_action(self, master_action, observation):
         worker_action = self.base(observation, None, None, master_action=master_action)
         return worker_action
-
-
-class HierarchicalPolicy(Policy):
-    def __init__(self, obs_shape, action_space, base_kwargs=None):
-        # init the master policy with a categorical output
-        base_kwargs['learn_skills'] = True
-        # TODO: remove the hardcoded part
-        base_kwargs['skill_action_dim'] = 8
-        super(HierarchicalPolicy, self).__init__(obs_shape, action_space, base_kwargs)
-
-    def act_skill(self, inputs, master_action, unused_rnn_hxs, unused_masks, deterministic=False):
-        value_skills, actor_features_skills, _ = self.base(inputs, None, None, master_action)
-        action_skills, action_skills_log_probs = [], []
-        for env_id, skill in enumerate(master_action):
-            dist_skill = self.dist_skills[skill](actor_features_skills[env_id:env_id+1])
-
-            if deterministic:
-                action_skill = dist_skill.mode()
-            else:
-                action_skill = dist_skill.sample()
-
-            action_skill_log_probs = dist_skill.log_probs(action_skill)
-
-            action_skills.append(action_skill[0])
-            action_skills_log_probs.append(action_skill_log_probs[0])
-
-        return value_skills, torch.stack(action_skills), torch.stack(action_skills_log_probs), None
-
-    def get_value_skills(self, inputs, master_action, unused_rnn_hxs, unused_masks):
-        value_skills, _, _ = self.base(inputs, None, None, master_action)
-        return value_skills
-
-    def evaluate_actions_skills(self, inputs, master_action, unused_rnn_hxs, unused_masks, action):
-        value_skills, actor_features_skills, _ = self.base(inputs, None, None, master_action)
-        action_log_probs_skills, dist_entropy_skills = [], []
-        for env_id, skill in enumerate(master_action):
-            dist_skill = self.dist_skills[skill](actor_features_skills[env_id:env_id+1])
-
-            action_log_probs_skills.append(dist_skill.log_probs(action[skill:skill+1])[0])
-            dist_entropy_skills.append(dist_skill.entropy().mean())
-
-        return value_skills, torch.stack(action_log_probs_skills), \
-            torch.stack(dist_entropy_skills).mean(), unused_rnn_hxs
 
 
 class NNBase(nn.Module):
@@ -286,14 +234,12 @@ class ResnetBase(NNBase):
             hidden_size=64,
             archi='resnet18',
             pretrained=False,
-            learn_skills=False,
             **kwargs):
         super(ResnetBase, self).__init__(recurrent_policy, hidden_size, hidden_size)
 
         self.num_skills = num_skills
         self.dim_skill_action = dim_skill_action
         self.num_skill_action_pred = num_skill_action_pred
-        self.learn_skills = learn_skills
         num_outputs_resnet = self.num_skills * dim_skill_action * num_skill_action_pred
         if 'use_direct_actions' in kwargs and kwargs['use_direct_actions']:
             num_outputs_resnet = dim_skill_action
@@ -316,7 +262,6 @@ class ResnetBase(NNBase):
             lambda x: nn.init.constant_(x, 0))
 
         self.actor = nn.Sequential(
-            Flatten(),
             init_(nn.Linear(512, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
@@ -324,34 +269,11 @@ class ResnetBase(NNBase):
         )
 
         self.critic = nn.Sequential(
-            Flatten(),
             init_(nn.Linear(512, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
         )
-
-        if self.learn_skills:
-            self.actor_skills = []
-            self.critic_skills = []
-            for skill in range(self.num_skills):
-                self.actor_skills.append(nn.Sequential(
-                    Flatten(),
-                    init_(nn.Linear(512, hidden_size)),
-                    nn.Tanh(),
-                    init_(nn.Linear(hidden_size, hidden_size)),
-                    nn.Tanh()
-                ))
-                self.critic_skills.append(nn.Sequential(
-                    Flatten(),
-                    init_(nn.Linear(512, hidden_size)),
-                    nn.Tanh(),
-                    init_(nn.Linear(hidden_size, hidden_size)),
-                    nn.Tanh()
-                ))
-            self.actor_skills = nn.ModuleList(self.actor_skills)
-            self.critic_skills = nn.ModuleList(self.critic_skills)
-
 
         init_ = lambda m: init(m,
             nn.init.orthogonal_,
@@ -359,29 +281,23 @@ class ResnetBase(NNBase):
 
         self.critic_linear = init_(nn.Linear(hidden_size, 1))
 
-        if self.learn_skills:
-            self.critic_linear_skills = []
-            for skill in range(self.num_skills):
-                self.critic_linear_skills.append(init_(nn.Linear(hidden_size, 1)))
-            self.critic_linear_skills = nn.ModuleList(self.critic_linear_skills)
+        skills_fc_sizes = [512, hidden_size, hidden_size, dim_skill_action*num_skill_action_pred]
+        self.skills = []
+        for skill in range(num_skills):
+            skill_layers = []
+            for i in range(len(skills_fc_sizes) - 1):
+                skill_layers.append(nn.Linear(skills_fc_sizes[i], skills_fc_sizes[i + 1]))
+                if i < len(skills_fc_sizes) - 2:
+                    skill_layers.append(nn.Tanh())
+            skill_layers = nn.Sequential(*skill_layers)
+            self.skills.append(skill_layers)
+        self.skills = nn.ModuleList(self.skills)
 
         self.train()
 
     def forward(self, inputs, unused_rnn_hxs, unused_masks, master_action=None):
-        # inputs_reshaped = inputs_reshaped.type_as(inputs)
-        # we now reshape the observations inside each environment, remove this code later
-        # inputs_reshaped = []
-        # for depth_maps_stack in inputs:
-        #     depth_maps_reshaped_stack = []
-        #     for depth_map in depth_maps_stack:
-        #         # 1) transforms.ToPILImage expects 3D tensor, so we use [None]
-        #         # 2) transforms.ToPILImage expects image between 0. and 1.
-        #         # 3) we remove the extra dim with [0] afterwards
-        #         depth_maps_reshaped_stack.append(self._transform(depth_map.cpu()[None] / 255)[0])
-        #     inputs_reshaped.append(torch.stack(depth_maps_reshaped_stack))
-        # inputs_reshaped = torch.stack(inputs_reshaped)
+        # we now reshape the observations inside each environment
         # we do not use rnn_hxs but keep it for compatibility
-        # all_skills_actions, features = self.resnet(inputs)
         features = self.resnet(inputs)
         if master_action is None:
             # this is the policy step itself
@@ -389,35 +305,10 @@ class ResnetBase(NNBase):
             hidden_actor = self.actor(features.detach())
             return self.critic_linear(hidden_critic), hidden_actor, unused_rnn_hxs
         else:
-            # TODO: refactor this
-            if self.learn_skills:
-                master_action = master_action.detach()
-                hidden_actor_skill_list, critic_skill_list = [], []
-                for env_id, skill_id in enumerate(master_action):
-                    env_features = features.detach()[env_id:env_id+1]
-                    hidden_actor_skill = self.actor_skills[skill_id](env_features)
-                    hidden_critic_skill = self.critic_skills[skill_id](env_features)
-                    critic_skill = self.critic_linear_skills[skill_id](hidden_critic_skill)
-                    critic_skill_list.append(critic_skill[0])
-                    hidden_actor_skill_list.append(hidden_actor_skill[0])
-                return torch.stack(critic_skill_list), torch.stack(hidden_actor_skill_list), None
-
-            # all_skills_actions: num_processes x (num_skills*dim_skill_action*num_skill_action_pred)
             # master_action: num_processes x 1
-            skills_actions = []
-            for env_id, skill_id in enumerate(master_action):
-                # for the process I to access the skill J action we need the slice
-                # proc_I_skill_J action beginning is at:
-                # all_skills_actions[I, J x dim_skill_action x num_skill_action_pred]
-                skill_action_begin = skill_id * self.dim_skill_action * self.num_skill_action_pred
-                # proc_I_skill_J action end is at:
-                # all_skills_actions[I, J x dim_skill_action x num_skill_action_pred + dim_skill_action]
-                skill_action_end = skill_action_begin + self.dim_skill_action
-                # so the proc_I_skill_J action is at
-                # all_skills_actions[I, J x dim_skill_action x num_skill_action_pred:
-                #                       J x dim_skill_action x num_skill_action_pred + dim_skill_action]
-                skill_action = all_skills_actions[env_id, skill_action_begin:skill_action_end]
-                skills_actions.append(skill_action)
-            skills_actions = torch.stack(skills_actions)
-            return skills_actions
-
+            skill_actions = []
+            assert len(master_action) == len(features)
+            for skill_id, feature in zip(master_action, features):
+                skill_action = self.skills[skill_id](feature)[:self.dim_skill_action]
+                skill_actions.append(skill_action)
+            return torch.stack(skill_actions)

@@ -31,7 +31,7 @@ class PPO():
 
         self.optimizer = optim.Adam(actor_critic.parameters(), lr=lr, eps=eps)
 
-    def update(self, rollouts, skills_update=False):
+    def update(self, rollouts):
         advantages = rollouts.returns[:-1] - rollouts.value_preds[:-1]
         advantages = (advantages - advantages.mean()) / (
             advantages.std() + 1e-5)
@@ -51,25 +51,12 @@ class PPO():
             for sample in data_generator:
                 obs_batch, recurrent_hidden_states_batch, actions_batch, \
                    value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, \
-                        adv_targ, master_actions_batch = sample
+                        adv_targ = sample
 
                 # Reshape to do in a single forward pass for all steps
-                if not skills_update:
-                    values, action_log_probs, dist_entropy, _ = self.actor_critic.evaluate_actions(
-                        obs_batch, recurrent_hidden_states_batch,
-                        masks_batch, actions_batch)
-                    # this is an assert that the skills do not change during the master update
-                    with torch.no_grad():
-                        critic_before_update, actor_before_update, _ = self.actor_critic.base(
-                            obs_batch, None, None, actions_batch)
-                else:
-                    values, action_log_probs, dist_entropy, _ = self.actor_critic.evaluate_actions_skills(
-                        obs_batch, master_actions_batch, recurrent_hidden_states_batch,
-                        masks_batch, actions_batch)
-                    # this is an assert that the master does not change during the skills update
-                    with torch.no_grad():
-                        critic_before_update, actor_before_update, _ = self.actor_critic.base(
-                            obs_batch, None, None)
+                values, action_log_probs, dist_entropy, _ = self.actor_critic.evaluate_actions(
+                    obs_batch, recurrent_hidden_states_batch,
+                    masks_batch, actions_batch)
 
                 ratio = torch.exp(action_log_probs - old_action_log_probs_batch)
                 surr1 = ratio * adv_targ
@@ -92,15 +79,6 @@ class PPO():
                 nn.utils.clip_grad_norm_(self.actor_critic.parameters(),
                                          self.max_grad_norm)
                 self.optimizer.step()
-                with torch.no_grad():
-                    if not skills_update:
-                        critic_after_update, actor_after_update, _ = self.actor_critic.base(
-                            obs_batch, None, None, actions_batch)
-                    else:
-                        critic_after_update, actor_after_update, _ = self.actor_critic.base(
-                            obs_batch, None, None)
-                # assert (critic_after_update == critic_before_update).all() and \
-                #     (actor_after_update == actor_before_update).all()
 
                 value_loss_epoch += value_loss.item()
                 action_loss_epoch += action_loss.item()

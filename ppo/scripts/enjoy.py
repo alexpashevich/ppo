@@ -36,7 +36,7 @@ def main():
 
     # We need to use the statistics for normalization from the training, we ignore the optimizer
     load_path = args.load_path if '.pt' in args.load_path else os.path.join(args.load_path,
-                                                                          "model_current.pt")
+                                                                            "model_current.pt")
     policy, _, ob_rms, step, config_old = torch.load(load_path)
     if args.same_path_for_json and config_old.checkpoint_path is not None:
         load_dir = args.load_path if '.pt' not in args.load_path else os.path.dirname(args.load_path)

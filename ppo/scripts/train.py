@@ -58,7 +58,7 @@ def main():
     logdir, args, device, all_envs, policy, start_epoch, agent, action_space = init_training(args)
     envs_train, envs_eval, env_render_train, env_render_eval = all_envs
     action_space_skills = Box(-np.inf, np.inf, (args.dim_skill_action,), dtype=np.float)
-    rollouts, rollouts_skills, obs, num_master_steps_per_update = utils.init_rollout_storage(
+    rollouts, obs, num_master_steps_per_update = utils.init_rollout_storage(
         args, envs_train, env_render_train, policy, action_space, action_space_skills, device)
 
     num_updates = int(args.num_frames) // args.num_frames_per_update // args.num_processes
@@ -67,7 +67,7 @@ def main():
     start = time.time()
 
     if hasattr(policy.base, 'resnet'):
-        test_tensor, feat_check = utils.init_frozen_skills_check(obs, policy)
+        assert_tensors = utils.init_frozen_skills_check(obs, policy)
 
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
@@ -83,8 +83,8 @@ def main():
 
             # Observe reward and next obs
             obs, reward, done, infos = utils.do_master_step(
-                action, rollouts.obs[step], args.timescale, policy, envs_train, rollouts_skills,
-                args.hrlbc_setup, env_render_train, learn_skills=args.learn_skills)
+                action, rollouts.obs[step], args.timescale, policy, envs_train,
+                args.hrlbc_setup, env_render_train)
             obs = utils.reset_early_terminated_envs(envs_train, env_render_train, done, obs, device)
 
             stats_global, stats_local = stats.update(
@@ -102,20 +102,8 @@ def main():
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
 
-        if args.learn_skills:
-            # skills policies training
-            with torch.no_grad():
-                next_value_skills = policy.get_value_skills(
-                    rollouts_skills.obs[-1], None, None, action).detach()
-            rollouts_skills.compute_returns(next_value_skills, args.use_gae, args.gamma, args.tau)
-            skills_losses = agent.update(
-                rollouts_skills, skills_update=True)
-            rollouts_skills.after_update()
-        else:
-            skills_losses = None, None, None
-
         if hasattr(policy.base, 'resnet'):
-            utils.make_frozen_skills_check(policy, test_tensor, feat_check)
+            utils.make_frozen_skills_check(policy, *assert_tensors)
 
         if epoch % args.save_interval == 0:
             log.save_model(logdir, policy, agent.optimizer, epoch, device, envs_train, args, eval=True)
@@ -124,8 +112,7 @@ def main():
 
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
-                total_num_env_steps, start, stats_global, action_loss,
-                value_loss, dist_entropy, skills_losses)
+                total_num_env_steps, start, stats_global, action_loss, value_loss, dist_entropy)
 
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
         if args.render or (len(stats_global['length']) > 0 and is_eval_time):

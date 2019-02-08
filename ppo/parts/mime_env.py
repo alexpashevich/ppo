@@ -12,11 +12,11 @@ from torchvision import transforms
 from mime.agent.agent import Agent
 
 
-SUPPORTED_MIME_ENVS = 'UR5-BowlEnv-v0', 'UR5-BowlCamEnv-v0', 'UR5-SaladEnv-v0', 'UR5-SaladCamEnv-v0'
+SUPPORTED_MIME_ENVS = 'Bowl', 'Salad'
 
 class MiMEEnv(object):
     def __init__(self, env_name, config, id=0):
-        assert env_name in SUPPORTED_MIME_ENVS
+        assert any([env_prefix in env_name for env_prefix in SUPPORTED_MIME_ENVS])
 
         self.env_name = env_name
         self.env = gym.make(env_name)
@@ -65,13 +65,7 @@ class MiMEEnv(object):
 
     @property
     def observation_space(self):
-        if self.env_name == 'UR5-BowlEnv-v0':
-            return Box(-np.inf, np.inf, (19,), dtype=np.float)
-        elif self.env_name == 'UR5-SaladEnv-v0':
-            num_cups, num_drops = self.env.unwrapped.scene._n_cups, self.env.unwrapped.scene._num_drops
-            num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
-            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
-        elif 'Cam' in self.env_name:
+        if 'Cam' in self.env_name:
             if self.observation_type == 'depth':
                 observation_dim = 1
             elif self.observation_type == 'rgbd':
@@ -79,6 +73,12 @@ class MiMEEnv(object):
             else:
                 raise NotImplementedError
             return Box(-np.inf, np.inf, (observation_dim, 224, 224), dtype=np.float)
+        elif 'Bowl' in self.env_name:
+            return Box(-np.inf, np.inf, (19,), dtype=np.float)
+        elif 'Salad' in self.env_name:
+            num_cups, num_drops = self.env.unwrapped.scene._n_cups, self.env.unwrapped.scene._num_drops
+            num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
+            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
 
     @property
     def action_space(self):
