@@ -10,6 +10,7 @@ from copy import deepcopy
 from torchvision import transforms
 
 from mime.agent.agent import Agent
+from bc.dataset import Frames
 
 
 SUPPORTED_MIME_ENVS = 'Bowl', 'Salad'
@@ -27,8 +28,8 @@ class MiMEEnv(object):
         self._render = vars(config).get('render', False) and id == 0
         self._id = id
         self.hrlbc_setup = vars(config).get('hrlbc_setup', False)
-        # pure PPO baseline
         self.observation_type = vars(config).get('input_type', 'depth')
+        self.augmentation = vars(config).get('augmentation', False)
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
@@ -47,11 +48,6 @@ class MiMEEnv(object):
                 config.checkpoint_path)
         else:
             self.action_mean, self.action_std = None, None
-
-        self.image_transform = transforms.Compose([transforms.ToPILImage(),
-                                                   transforms.Resize([224, 224]),
-                                                   transforms.ToTensor(),
-                                                   transforms.Normalize((0.5, 0.5), (0.5, 0.5))])
 
     def _load_action_stats(self, checkpoint_path):
         checkpoint_dir = '/'.join(checkpoint_path.split('/')[:-1])
@@ -102,20 +98,16 @@ class MiMEEnv(object):
                     observation = np.concatenate((observation, obs_value))
         else:
             if self.observation_type == 'depth':
-                obs_keys = ('depth0',)
+                channels = ('depth',)
             elif self.observation_type == 'rgbd':
-                obs_keys = ('rgb0', 'depth0')
-            observation = []
-            for obs_key in obs_keys:
-                # this might be the depth channel or the rgb whole
-                obs_big = obs_dict[obs_key]
-                if len(obs_big.shape) == 2:
-                    # transforms.ToPILImage expects 3D tensor, so we use [None]
-                    obs_big = obs_big[..., None]
-                # we remove the extra dim with [0] afterwards
-                obs_transformed = self.image_transform(obs_big).numpy()
-                observation.append(obs_transformed)
-            observation = np.concatenate(observation, axis=0)
+                channels = ('depth', 'rgb')
+            obs_im = {}
+            for channel in channels:
+                obs_im[channel] = obs_dict['{}0'.format(channel)].copy()
+            if 'mask0' in obs_dict:
+                obs_im['mask'] = obs_dict['mask0'].copy()
+            observation = Frames.dic_to_tensor(
+                [obs_im], channels, Frames.sum_channels(channels), augmentation_str=self.augmentation)
         return observation
 
     def _get_null_action_dict(self):

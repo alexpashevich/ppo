@@ -27,6 +27,9 @@ def get_args():
                         help='add timestep to observations')
     parser.add_argument('--input-type', type=str, default='depth',
                         help='type of input for the conv nets')
+    # augmentation stuff
+    parser.add_argument('--augmentation', type=str, default='',
+                        help='which data augmentation to use for the frames')
     # RL algorithm hyperparameters
     parser.add_argument('--lr', type=float, default=7e-4,
                         help='learning rate (default: 7e-4)')
