@@ -7,8 +7,7 @@ import numpy as np
 import json
 
 from ppo.tools.misc import get_device, seed_torch
-from ppo.tools.utils import evaluate
-from ppo.tools.envs import make_vec_envs
+from ppo.scripts.utils import evaluate
 from ppo.tools.log import init_writers, log_eval
 from ppo.tools.gifs import save as save_gifs
 
