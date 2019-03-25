@@ -207,7 +207,10 @@ def reset_early_terminated_envs(envs, env_render, done, obs, device, num_frames=
     if isinstance(envs.venv.venv, SubprocVecEnv):
         # we use several envs in a batch
         for idx in done_idxs:
-            obs_torch = remotes[idx].recv().to(device)
+            obs_torch = remotes[idx].recv()
+            if isinstance(obs_torch, np.ndarray):
+                obs_torch = torch.tensor(obs_torch)
+            obs_torch = obs_torch.to(device)
             if isinstance(envs, VecPyTorchFrameStack):
                 # observations are images
                 for _ in range(num_frames):

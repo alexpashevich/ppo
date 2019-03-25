@@ -4,6 +4,7 @@ import torch
 import numpy as np
 from gym.spaces import Discrete, Box
 
+import bc.utils.misc as bc_misc
 import ppo.tools.misc as misc
 import ppo.tools.log as log
 import ppo.tools.stats as stats
@@ -17,7 +18,7 @@ def init_training(args):
     logdir = os.path.join(args.logdir, args.timestamp)
 
     # get the device before loading to enable the GPU/CPU transfer
-    device = misc.get_device(args.device)
+    device = bc_misc.get_device(args.device)
     print('Running the experiments on {}'.format(device))
 
     # try to load from a checkpoint

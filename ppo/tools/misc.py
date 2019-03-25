@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 
 import os
-import socket
 
 from ppo.tools.envs import VecNormalize
 
@@ -47,14 +46,6 @@ def seed_torch(args):
     if args.device == 'cuda':
         torch.cuda.manual_seed(args.seed)
     torch.set_num_threads(1)
-
-def get_device(device):
-    assert device in ('cpu', 'cuda'), 'device should be in (cpu, cuda)'
-    if socket.gethostname() == 'gemini' or not torch.cuda.is_available():
-        device = torch.device("cpu")
-    else:
-        device = torch.device("cuda:0" if device == 'cuda' else "cpu")
-    return device
 
 def try_to_load_model(logdir):
     loaded_tuple = None

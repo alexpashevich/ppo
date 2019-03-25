@@ -72,7 +72,8 @@ class MiMEEnv(object):
         elif 'Bowl' in self.env_name:
             return Box(-np.inf, np.inf, (19,), dtype=np.float)
         elif 'Salad' in self.env_name:
-            num_cups, num_drops = self.env.unwrapped.scene._n_cups, self.env.unwrapped.scene._num_drops
+            num_cups = self.env.unwrapped.scene._num_cups
+            num_drops = self.env.unwrapped.scene._num_drops
             num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
             return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
 
