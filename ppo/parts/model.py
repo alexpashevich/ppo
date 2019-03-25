@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torchvision import transforms
 
 from ppo.parts.distributions import Categorical, DiagGaussian
 from ppo.tools.misc import init, init_normc_
@@ -20,7 +19,6 @@ class Policy(nn.Module):
             base_kwargs = {}
 
         if len(obs_shape) == 3:
-            # self.base = CNNBase(obs_shape[0], **base_kwargs)
             self.base = ResnetBase(obs_shape[0], **base_kwargs)
             # set the eval mode so the behavior of the skills is the same as in BC training
             self.base.resnet.eval()
@@ -144,44 +142,6 @@ class NNBase(nn.Module):
         return x, hxs
 
 
-class CNNBase(NNBase):
-    def __init__(self, num_inputs, recurrent=False, hidden_size=512, **kwargs):
-        super(CNNBase, self).__init__(recurrent, hidden_size, hidden_size)
-
-        init_ = lambda m: init(m,
-            nn.init.orthogonal_,
-            lambda x: nn.init.constant_(x, 0),
-            nn.init.calculate_gain('relu'))
-
-        self.main = nn.Sequential(
-            init_(nn.Conv2d(num_inputs, 32, 8, stride=4)),
-            nn.ReLU(),
-            init_(nn.Conv2d(32, 64, 4, stride=2)),
-            nn.ReLU(),
-            init_(nn.Conv2d(64, 32, 3, stride=1)),
-            nn.ReLU(),
-            Flatten(),
-            init_(nn.Linear(32 * 7 * 7, hidden_size)),
-            nn.ReLU()
-        )
-
-        init_ = lambda m: init(m,
-            nn.init.orthogonal_,
-            lambda x: nn.init.constant_(x, 0))
-
-        self.critic_linear = init_(nn.Linear(hidden_size, 1))
-
-        self.train()
-
-    def forward(self, inputs, rnn_hxs, masks):
-        x = self.main(inputs / 255.0)
-
-        if self.is_recurrent:
-            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
-
-        return self.critic_linear(x), x, rnn_hxs
-
-
 class MLPBase(NNBase):
     def __init__(self, num_inputs, recurrent_policy=False, hidden_size=64, **kwargs):
         super(MLPBase, self).__init__(recurrent_policy, num_inputs, hidden_size)
@@ -232,6 +192,7 @@ class ResnetBase(NNBase):
             num_skill_action_pred=1,
             recurrent_policy=False,  # is not supported
             hidden_size=64,
+            cnn_output_features=512,
             archi='resnet18',
             pretrained=False,
             **kwargs):
@@ -251,25 +212,19 @@ class ResnetBase(NNBase):
             dim_action=dim_skill_action*num_skill_action_pred,  # dim_action in ResNetBranch
             return_features=True)
 
-        self._transform = transforms.Compose([transforms.ToPILImage(),
-                                              transforms.Resize([224, 224]),
-                                              transforms.ToTensor(),
-                                              transforms.Normalize((0.5, 0.5), (0.5, 0.5)),
-                                              ])
-
         init_ = lambda m: init(m,
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0))
 
         self.actor = nn.Sequential(
-            init_(nn.Linear(512, hidden_size)),
+            init_(nn.Linear(cnn_output_features, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
         )
 
         self.critic = nn.Sequential(
-            init_(nn.Linear(512, hidden_size)),
+            init_(nn.Linear(cnn_output_features, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
@@ -281,7 +236,10 @@ class ResnetBase(NNBase):
 
         self.critic_linear = init_(nn.Linear(hidden_size, 1))
 
-        skills_fc_sizes = [512, hidden_size, hidden_size, dim_skill_action*num_skill_action_pred]
+        skills_fc_sizes = [cnn_output_features,
+                           hidden_size,
+                           hidden_size,
+                           dim_skill_action*num_skill_action_pred]
         self.skills = []
         for skill in range(num_skills):
             skill_layers = []

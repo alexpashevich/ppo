@@ -76,6 +76,8 @@ def get_args():
                         help='dimensionality of a skill action')
     parser.add_argument('--num-skill-action-pred', type=int, default=4,
                         help='number of future actions predicted')
+    parser.add_argument('--cnn-output-features', type=int, default=512,
+                        help='the number of resnet features')
     # evaluation
     parser.add_argument('--num-eval-episodes', type=int, default=16,
                         help='number of episodes to use in evaluation')
