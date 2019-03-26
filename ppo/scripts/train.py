@@ -38,7 +38,7 @@ def init_training(args):
     # create the policy
     action_space = Discrete(args.num_skills)
     if not loaded_tuple:
-        policy = utils.create_policy(args, envs_train, device, action_space)
+        policy = utils.create_policy(args, envs_train, device, action_space, logdir)
         start_epoch = 0
     policy.to(device)
 

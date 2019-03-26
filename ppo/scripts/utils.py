@@ -1,10 +1,10 @@
 import torch
-
 import copy
 import os
 import numpy as np
 
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+from shutil import copyfile
 from ppo.tools.envs import VecPyTorchFrameStack, make_vec_envs, make_env
 from ppo.tools.misc import get_vec_normalize, load_from_checkpoint
 from ppo.algo.ppo import PPO
@@ -35,10 +35,13 @@ def create_render_env(args, device):
     return env_render_train, env_render_eval
 
 
-def create_policy(args, envs, device, action_space):
+def create_policy(args, envs, device, action_space, logdir):
     policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
     if args.checkpoint_path:
         load_from_checkpoint(policy, args.checkpoint_path, device)
+        checkpoint_dir = os.path.dirname(args.checkpoint_path)
+        if os.path.exists(os.path.join(checkpoint_dir, 'info.json')):
+            copyfile(os.path.join(checkpoint_dir, 'info.json'), os.path.join(logdir, 'info.json'))
     return policy
 
 
