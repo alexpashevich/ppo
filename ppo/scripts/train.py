@@ -31,8 +31,8 @@ def init_training(args):
     # create the parallel envs
     envs_train, envs_eval = utils.create_envs(args, device), None
     env_render_train, env_render_eval = None, None
-    if render_cached:
-        env_render_train, env_render_eval = utils.create_render_env(args, device)
+    # if render_cached:
+    #     env_render_train, env_render_eval = utils.create_render_env(args, device)
     args.render = render_cached
 
     # create the policy

@@ -15,7 +15,7 @@ import ppo.tools.gifs as gifs
 
 
 def create_envs(args, device):
-    args.render = False
+    # args.render = False
     envs = make_vec_envs(
         args.env_name, args.seed, args.num_processes, args.gamma,
         args.add_timestep, device, False, env_config=args)
