@@ -23,6 +23,7 @@ class MiMEEnv(object):
         self.env = gym.make(env_name)
         if 'max_length' in vars(config) and config.max_length is not None:
             self.env._max_episode_steps = config.max_length
+        self.env.unwrapped.scene.set_rl_mode()
         self.num_skills = vars(config).get('num_skills', 4)
         self.timescale = vars(config).get('timescale', 25)
         self._render = vars(config).get('render', False) and id == 0
