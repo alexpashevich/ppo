@@ -51,7 +51,9 @@ def make_vec_envs(env_name, seed, num_processes, gamma, add_timestep,
     envs = VecPyTorch(envs, device)
 
     if 'Cam' in env_name:
-        envs = VecPyTorchFrameStack(envs, 3, device)
+        # envs = VecPyTorchFrameStack(envs, 3, device)
+        # TODO: temporal fix, avoid using it in the future
+        envs = VecPyTorchFrameStack(envs, 1, device)
 
     return envs
 
@@ -115,7 +117,6 @@ class VecPyTorch(VecEnvWrapper):
 
 
 class VecNormalize(VecNormalize_):
-
     def __init__(self, *args, **kwargs):
         super(VecNormalize, self).__init__(*args, **kwargs)
         self.training = True

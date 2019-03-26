@@ -2,9 +2,11 @@ import torch
 import copy
 import os
 import numpy as np
+import pickle as pkl
 
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from shutil import copyfile
+from io import BytesIO
 from ppo.tools.envs import VecPyTorchFrameStack, make_vec_envs, make_env
 from ppo.tools.misc import get_vec_normalize, load_from_checkpoint
 from ppo.algo.ppo import PPO
@@ -211,19 +213,22 @@ def reset_early_terminated_envs(envs, env_render, done, obs, device, num_frames=
         # we use several envs in a batch
         for idx in done_idxs:
             obs_torch = remotes[idx].recv()
+            if isinstance(obs_torch, bytes):
+                obs_torch = pkl.load(BytesIO(obs_torch))
             if isinstance(obs_torch, np.ndarray):
                 obs_torch = torch.tensor(obs_torch)
             obs_torch = obs_torch.to(device)
-            if isinstance(envs, VecPyTorchFrameStack):
-                # observations are images
-                for _ in range(num_frames):
-                    envs.stacked_obs[idx].append(obs_torch)
-            else:
-                # observations are full states, no need to stack last 3 states
-                obs[idx] = obs_torch
-        if isinstance(envs, VecPyTorchFrameStack):
-            # observations are images
-            obs = envs._deque_to_tensor()
+            obs[idx] = obs_torch
+        #     if isinstance(envs, VecPyTorchFrameStack):
+        #         # observations are images
+        #         for _ in range(num_frames):
+        #             envs.stacked_obs[idx].append(obs_torch)
+        #     else:
+        #         # observations are full states, no need to stack last 3 states
+        #         obs[idx] = obs_torch
+        # if isinstance(envs, VecPyTorchFrameStack):
+        #     # observations are images
+        #     obs = envs._deque_to_tensor()
     else:
         # DummyVecEnv is used, we have only one env
         if 0 in done_idxs:

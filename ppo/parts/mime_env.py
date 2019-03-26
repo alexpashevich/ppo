@@ -1,13 +1,13 @@
 import gym
 import itertools
-import numpy as np
 import json
 import os
+import numpy as np
+import pickle as pkl
 
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from gym.spaces import Box, Discrete
-from copy import deepcopy
-from torchvision import transforms
+from io import BytesIO
 
 from mime.agent.agent import Agent
 from bc.dataset import Frames
@@ -48,6 +48,8 @@ class MiMEEnv(object):
                 config.checkpoint_path)
         else:
             self.action_mean, self.action_std = None, None
+        self.frames_stack = deque(maxlen=3)
+        self.compress_frames = True
 
     def _load_action_stats(self, checkpoint_path):
         checkpoint_dir = '/'.join(checkpoint_path.split('/')[:-1])
@@ -63,9 +65,9 @@ class MiMEEnv(object):
     def observation_space(self):
         if 'Cam' in self.env_name:
             if self.observation_type == 'depth':
-                observation_dim = 1
+                observation_dim = 1 * 3
             elif self.observation_type == 'rgbd':
-                observation_dim = 4
+                observation_dim = 4 * 3
             else:
                 raise NotImplementedError
             return Box(-np.inf, np.inf, (observation_dim, 224, 224), dtype=np.float)
@@ -84,7 +86,7 @@ class MiMEEnv(object):
         else:
             return Box(-np.inf, np.inf, (self.dim_skill_action,), dtype=np.float)
 
-    def _obs_dict_to_numpy(self, obs_dict):
+    def _process_obs(self, obs_dict):
         if 'Cam' not in self.env_name:
             observation = np.array([])
             obs_sorted = OrderedDict(sorted(obs_dict.items(), key=lambda t: t[0]))
@@ -107,8 +109,13 @@ class MiMEEnv(object):
                 obs_im[channel] = obs_dict['{}0'.format(channel)].copy()
             if 'mask0' in obs_dict:
                 obs_im['mask'] = obs_dict['mask0'].copy()
+            self.frames_stack.append(obs_im)
+            while len(self.frames_stack) < 3:
+                # if this is the first observation after reset
+                self.frames_stack.append(obs_im)
             observation = Frames.dic_to_tensor(
-                [obs_im], channels, Frames.sum_channels(channels), augmentation_str=self.augmentation)
+                self.frames_stack, channels, Frames.sum_channels(channels),
+                augmentation_str=self.augmentation)
         return observation
 
     def _get_null_action_dict(self):
@@ -171,18 +178,28 @@ class MiMEEnv(object):
     def step(self, action):
         action_applied = self._get_action_applied(action)
         obs, reward, done, info = self.env.step(action_applied)
-        observation = self._obs_dict_to_numpy(obs)
+        observation = self._process_obs(obs)
         if len(info['failure_message']):
             print('env {} failure {}'.format(self._id, info['failure_message']))
+        if self.compress_frames:
+            buffer = BytesIO()
+            pkl.dump(observation.numpy(), buffer)
+            observation = buffer.getvalue()
         return observation, reward, done, info
 
     def reset(self):
+        self.frames_stack.clear()
         self._prev_script = None
         print('env {} is reset'.format(self._id))
         if self._render:
             print('env is reset')
         obs = self.env.reset()
-        return self._obs_dict_to_numpy(obs)
+        observation = self._process_obs(obs)
+        if self.compress_frames:
+            buffer = BytesIO()
+            pkl.dump(observation.numpy(), buffer)
+            observation = buffer.getvalue()
+        return observation
 
     def seed(self, seed):
         self.env.seed(seed)
