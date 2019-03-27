@@ -23,7 +23,10 @@ class MiMEEnv(object):
         self.env = gym.make(env_name)
         if 'max_length' in vars(config) and config.max_length is not None:
             self.env._max_episode_steps = config.max_length
-        self.env.unwrapped.scene.set_rl_mode()
+        if hasattr(self.env.unwrapped.scene, 'set_rl_mode'):
+            self.env.unwrapped.scene.set_rl_mode()
+        else:
+            print('WARNING: the scene does not have set_rl_mode function')  # TODO: remove this
         self.num_skills = vars(config).get('num_skills', 4)
         self.timescale = vars(config).get('timescale', 25)
         self._render = vars(config).get('render', False) and id == 0
@@ -50,7 +53,7 @@ class MiMEEnv(object):
         else:
             self.action_mean, self.action_std = None, None
         self.frames_stack = deque(maxlen=3)
-        self.compress_frames = True
+        self.compress_frames = vars(config).get('compress_frames', False)
 
     def _load_action_stats(self, checkpoint_path):
         checkpoint_dir = '/'.join(checkpoint_path.split('/')[:-1])
@@ -182,7 +185,7 @@ class MiMEEnv(object):
         observation = self._process_obs(obs)
         if len(info['failure_message']):
             print('env {} failure {}'.format(self._id, info['failure_message']))
-        if self.compress_frames:
+        if self.compress_frames and 'Cam' in self.env_name:
             buffer = BytesIO()
             pkl.dump(observation.numpy(), buffer)
             observation = buffer.getvalue()
@@ -196,7 +199,7 @@ class MiMEEnv(object):
             print('env is reset')
         obs = self.env.reset()
         observation = self._process_obs(obs)
-        if self.compress_frames:
+        if self.compress_frames and 'Cam' in self.env_name:
             buffer = BytesIO()
             pkl.dump(observation.numpy(), buffer)
             observation = buffer.getvalue()

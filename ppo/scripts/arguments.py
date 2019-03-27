@@ -27,9 +27,11 @@ def get_args():
                         help='add timestep to observations')
     parser.add_argument('--input-type', type=str, default='depth',
                         help='type of input for the conv nets')
-    # augmentation stuff
+    # BC stuff
     parser.add_argument('--augmentation', type=str, default='',
                         help='which data augmentation to use for the frames')
+    parser.add_argument('--no-compress-frames', action='store_true', default=False,
+                        help='whether to compress the frames from mime')
     # RL algorithm hyperparameters
     parser.add_argument('--lr', type=float, default=7e-4,
                         help='learning rate (default: 7e-4)')
@@ -108,6 +110,7 @@ def get_args():
     args = parser.parse_args()
     args.recurrent_policy = False  # turn off recurrent policies support
     args.skip_unused_obs = not args.no_skip_unused_obs  # only works for the scripted setup
+    args.compress_frames = not args.no_compress_frames  # only works for the Cam envs
     if args.num_frames_per_update is None:
         args.num_frames_per_update = args.max_length
 
