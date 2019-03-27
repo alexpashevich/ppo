@@ -167,16 +167,23 @@ class MiMEEnv(object):
         # get the action either from numpy or from a script
         if self.hrlbc_setup:
             action_applied = self._action_numpy_to_dict(action)
+            # TODO: update for the flexible timescale
         else:
             if self._prev_script != action:
                 if self._render:
                     print('got a new script for env {}'.format(self._id))
                 self._prev_script = action
                 self._prev_action_chain = self.env.unwrapped.scene.script_subtask(action)
+                self._step_counter_after_new_action = 0
             action_chain = itertools.chain(*self._prev_action_chain)
             action_applied = self._get_null_action_dict()
-            action_update = self._filter_action(next(action_chain, action_applied))
-            action_applied.update(action_update)
+            action_update = next(action_chain, None)
+            if action_update is None:
+                print('env {} needs a new master action'.format(self._id))
+                self._need_master_action = True
+            else:
+                self._need_master_action = False
+                action_applied.update(self._filter_action(action_update))
         return action_applied
 
     def step(self, action):
@@ -185,6 +192,11 @@ class MiMEEnv(object):
         observation = self._process_obs(obs)
         if len(info['failure_message']):
             print('env {} failure {}'.format(self._id, info['failure_message']))
+        self._step_counter += 1
+        self._step_counter_after_new_action += 1
+        info['need_master_action'] = self._need_master_action
+        info['length'] = self._step_counter
+        info['length_after_new_action'] = self._step_counter_after_new_action
         if self.compress_frames and 'Cam' in self.env_name:
             buffer = BytesIO()
             pkl.dump(observation.numpy(), buffer)
@@ -192,6 +204,8 @@ class MiMEEnv(object):
         return observation, reward, done, info
 
     def reset(self):
+        self._need_master_action = True
+        self._step_counter, self._step_counter_after_new_action = 0, 0
         self.frames_stack.clear()
         self._prev_script = None
         print('env {} is reset'.format(self._id))

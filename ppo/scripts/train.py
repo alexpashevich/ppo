@@ -59,10 +59,8 @@ def main():
     logdir, args, device, all_envs, policy, start_epoch, agent, action_space = init_training(args)
     envs_train, envs_eval, env_render_train, env_render_eval = all_envs
     action_space_skills = Box(-np.inf, np.inf, (args.dim_skill_action,), dtype=np.float)
-    rollouts, obs, num_master_steps_per_update = utils.init_rollout_storage(
+    rollouts, obs = utils.init_rollout_storage(
         args, envs_train, env_render_train, policy, action_space, action_space_skills, device)
-
-    num_updates = int(args.num_frames) // args.num_frames_per_update // args.num_processes
 
     stats_global, stats_local = stats.init(args.num_processes)
     start = time.time()
@@ -75,31 +73,44 @@ def main():
         # utils.perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs_train, None, args)
         utils.perform_actions([5,0,0,1,2,3,4,4,6,0,0,1,2,3], obs, policy, envs_train, None, args)
         import pudb; pudb.set_trace()
-    for epoch in range(start_epoch, num_updates):
+    # TODO: group this somehow?
+    reward = 0
+    need_master_action = None
+    old_values = None
+    epoch = start_epoch
+    total_num_env_steps = 0
+    while True:
         print('Starting epoch {}'.format(epoch))
-        for step in range(num_master_steps_per_update):
-            # Sample actions
-            with torch.no_grad():
-                value, action, action_log_prob, recurrent_hidden_states = policy.act(
-                    rollouts.obs[step], rollouts.recurrent_hidden_states[step], rollouts.masks[step])
+        master_steps_done = 0
+        while master_steps_done < args.num_master_steps_per_update * args.num_processes:
+            value, action, action_log_prob, recurrent_hidden_states = utils.get_policy_values(
+                policy, rollouts, need_master_action, old_values)
+            old_values = value, action, action_log_prob, recurrent_hidden_states
 
             # Observe reward and next obs
-            obs, reward, done, infos = utils.do_master_step(
-                action, rollouts.obs[step], args.timescale, policy, envs_train,
-                args.hrlbc_setup, env_render_train)
-            obs = utils.reset_early_terminated_envs(envs_train, env_render_train, done, obs, device)
+            obs, reward, done, infos, need_master_action = utils.do_master_step_flex(
+                action, rollouts.get_last(rollouts.obs),
+                reward, policy, envs_train, args.hrlbc_setup, env_render_train)
+            master_steps_done += np.sum(need_master_action)
 
             stats_global, stats_local = stats.update(
-                stats_global, stats_local, reward, done, infos, args)
+                stats_global, stats_local, reward, done, infos, need_master_action, args)
 
             # If done then clean the history of observations.
             masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
-            rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks)
+            rollouts.insert_indices(
+                np.where(need_master_action), obs, recurrent_hidden_states,
+                action, action_log_prob, value, reward, masks)
+            reward[np.where(done)] = 0
+            total_num_env_steps += sum([info['length_after_new_action']
+                                        for info in np.array(infos)[np.where(need_master_action)]])
 
         # master policy training
         with torch.no_grad():
             next_value = policy.get_value(
-                rollouts.obs[-1], rollouts.recurrent_hidden_states[-1], rollouts.masks[-1]).detach()
+                rollouts.get_last(rollouts.obs),
+                rollouts.get_last(rollouts.recurrent_hidden_states),
+                rollouts.get_last(rollouts.masks)).detach()
         rollouts.compute_returns(next_value, args.use_gae, args.gamma, args.tau)
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
@@ -109,8 +120,6 @@ def main():
 
         if epoch % args.save_interval == 0:
             log.save_model(logdir, policy, agent.optimizer, epoch, device, envs_train, args, eval=True)
-
-        total_num_env_steps = (epoch + 1) * args.num_processes * args.num_frames_per_update
 
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
@@ -127,6 +136,10 @@ def main():
                     gifs.save(logdir, gifs_eval, epoch)
             else:
                 print('Saving the model after epoch {} for the offline evaluation'.format(epoch))
+        epoch += 1
+        if total_num_env_steps > args.num_frames:
+            print('Number of env steps reached the maximum number of frames')
+            break
 
 
 if __name__ == "__main__":

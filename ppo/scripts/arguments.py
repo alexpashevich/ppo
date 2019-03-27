@@ -39,7 +39,7 @@ def get_args():
                         help='number of ppo epochs (default: 4)')
     parser.add_argument('--num-mini-batch', type=int, default=16,
                         help='number of batches for ppo (default: 32)')
-    parser.add_argument('--num-frames-per-update', type=int, default=None,
+    parser.add_argument('--num-master-steps-per-update', type=int, default=None,
                         help='number of forward steps in A2C (default: 5)')
     # loss and clippings
     parser.add_argument('--value-loss-coef', type=float, default=0.5,
@@ -111,7 +111,5 @@ def get_args():
     args.recurrent_policy = False  # turn off recurrent policies support
     args.skip_unused_obs = not args.no_skip_unused_obs  # only works for the scripted setup
     args.compress_frames = not args.no_compress_frames  # only works for the Cam envs
-    if args.num_frames_per_update is None:
-        args.num_frames_per_update = args.max_length
 
     return args
