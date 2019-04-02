@@ -121,15 +121,15 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
     else:
         gifs_global = None
 
-    need_master_action, old_values = None, None
+    need_master_action, prev_policy_outputs = np.ones((args.num_processes,)), None
     reward = 0
     print('Evaluating...')
     while len(stats_global['return']) < args.num_eval_episodes:
         with torch.no_grad():
             value_unused, action, action_log_prob_unused, recurrent_hidden_states = get_policy_values(
                 policy, (obs, recurrent_hidden_states, masks),
-                need_master_action, old_values, deterministic=True)
-            old_values = value_unused, action, action_log_prob_unused, recurrent_hidden_states
+                need_master_action, prev_policy_outputs, deterministic=True)
+            prev_policy_outputs = value_unused, action, action_log_prob_unused, recurrent_hidden_states
 
         # Observe reward and next obs
         master_step_output = do_master_step_flex(
@@ -153,25 +153,31 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
 
 
 def get_policy_values(
-        policy, rollouts_or_explicit_tuple, need_master_action, old_values, deterministic=False):
-    # Sample actions
+        policy, rollouts_or_explicit_tuple, need_master_action,
+        prev_policy_outputs, deterministic=False):
+    ''' The function is sampling the policy actions '''
     if isinstance(rollouts_or_explicit_tuple, (tuple, list)):
+        # during evaluation we store the policy output in variables so we pass them directly
         obs, recurrent_states_input, masks = rollouts_or_explicit_tuple
     else:
+        # during trainin we store the policy output in rollouts so we pass the rollouts
         rollouts = rollouts_or_explicit_tuple
         obs = rollouts.get_last(rollouts.obs)
         recurrent_states_input = rollouts.get_last(rollouts.recurrent_hidden_states)
         masks = rollouts.get_last(rollouts.masks)
     with torch.no_grad():
-        if old_values is None:
-            return policy.act(
+        if np.all(need_master_action):
+            # each environment requires a master action
+            value, action, log_prob, recurrent_states = policy.act(
                 obs, recurrent_states_input, masks, deterministic)
         else:
-            value, action, log_prob, recurrent_states = old_values
+            # only several environments require a master action
+            # update only the values of those
+            value, action, log_prob, recurrent_states = prev_policy_outputs
             indices = np.where(need_master_action)
             value[indices], action[indices], log_prob[indices], recurrent_states[indices] = policy.act(
                 obs[indices], recurrent_states_input[indices], masks[indices], deterministic)
-            return value, action, log_prob, recurrent_states
+    return value, action, log_prob, recurrent_states
 
 
 def do_master_step_flex(
@@ -208,10 +214,10 @@ def do_master_step_flex(
         master_infos[np.where(need_master_action)] = np.array(infos)[np.where(need_master_action)]
         if np.any(need_master_action):
             break
-    if not return_observations:
-        return skill_obs, master_reward, done, master_infos, need_master_action
-    else:
-        return skill_obs, master_reward, done, master_infos, need_master_action, envs_history
+    return_tuple = [skill_obs, master_reward, done, master_infos, need_master_action]
+    if return_observations:
+        return_tuple += [envs_history]
+    return return_tuple
 
 
 def perform_actions(action_sequence, observation, policy, envs, env_render, args):

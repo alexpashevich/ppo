@@ -73,24 +73,21 @@ def main():
         # utils.perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs_train, None, args)
         utils.perform_actions([5,0,0,1,2,3,4,4,6,0,0,1,2,3], obs, policy, envs_train, None, args)
         import pudb; pudb.set_trace()
-    # TODO: group this somehow?
-    reward = 0
-    need_master_action = None
-    old_values = None
-    epoch = start_epoch
-    total_num_env_steps = 0
+    epoch, reward, total_num_env_steps = start_epoch, 0, 0
+    need_master_action, prev_policy_outputs = np.ones((args.num_processes,)), None
     while True:
         print('Starting epoch {}'.format(epoch))
         master_steps_done = 0
         while master_steps_done < args.num_master_steps_per_update * args.num_processes:
             value, action, action_log_prob, recurrent_hidden_states = utils.get_policy_values(
-                policy, rollouts, need_master_action, old_values)
-            old_values = value, action, action_log_prob, recurrent_hidden_states
+                policy, rollouts, need_master_action, prev_policy_outputs)
+            prev_policy_outputs = value, action, action_log_prob, recurrent_hidden_states
 
             # Observe reward and next obs
             obs, reward, done, infos, need_master_action = utils.do_master_step_flex(
                 action, rollouts.get_last(rollouts.obs),
                 reward, policy, envs_train, args.hrlbc_setup, env_render_train)
+            # TODO: reset_early_terminated???
             master_steps_done += np.sum(need_master_action)
 
             stats_global, stats_local = stats.update(
@@ -98,9 +95,10 @@ def main():
 
             # If done then clean the history of observations.
             masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
-            rollouts.insert_indices(
-                np.where(need_master_action), obs, recurrent_hidden_states,
-                action, action_log_prob, value, reward, masks)
+            rollouts.insert(
+                obs, recurrent_hidden_states,
+                action, action_log_prob, value, reward, masks,
+                indices=np.where(need_master_action))
             reward[np.where(done)] = 0
             total_num_env_steps += sum([info['length_after_new_action']
                                         for info in np.array(infos)[np.where(need_master_action)]])

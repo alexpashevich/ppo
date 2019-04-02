@@ -68,7 +68,7 @@ class TD3(object):
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters())
 
-        # TODO: what to do with it?
+        # what to do with it?
         self.max_action = max_action
         self.device = device
 

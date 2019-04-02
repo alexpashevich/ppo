@@ -105,7 +105,7 @@ Also I'm searching for volunteers to run all experiments on Atari and MuJoCo (wi
 
 It's extremely difficult to reproduce results for Reinforcement Learning methods. See ["Deep Reinforcement Learning that Matters"](https://arxiv.org/abs/1709.06560) for more information. I tried to reproduce OpenAI results as closely as possible. However, majors differences in performance can be caused even by minor differences in TensorFlow and PyTorch libraries.
 
-### TODO
+### Do later
 * Improve this README file. Rearrange images.
 * Improve performance of KFAC, see kfac.py for more information
 * Run evaluation for all games and algorithms

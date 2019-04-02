@@ -9,7 +9,7 @@ def _flatten_helper(T, N, _tensor):
 
 class RolloutStorage(object):
     def __init__(self, num_steps, num_processes, obs_shape, action_space, recurrent_hidden_state_size):
-        # num_steps = num_master_steps_per_update * num_processes
+        # TODO: is it correct? lines 51 and further
         num_steps *= num_processes
         self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
         self.recurrent_hidden_states = torch.zeros(num_steps + 1, num_processes, recurrent_hidden_state_size)
@@ -27,6 +27,7 @@ class RolloutStorage(object):
         self.masks = torch.ones(num_steps + 1, num_processes, 1)
 
         self.num_steps = num_steps
+        self.num_processes = num_processes
         self.steps = np.zeros(num_processes, dtype=np.int32)
 
     def to(self, device):
@@ -39,18 +40,17 @@ class RolloutStorage(object):
         self.actions = self.actions.to(device)
         self.masks = self.masks.to(device)
 
-    def insert(self, obs, recurrent_hidden_states, actions, action_log_probs, value_preds, rewards, masks):
-        self.obs[self.step + 1].copy_(obs)
-        self.recurrent_hidden_states[self.step + 1].copy_(recurrent_hidden_states)
-        self.actions[self.step].copy_(actions)
-        self.action_log_probs[self.step].copy_(action_log_probs)
-        self.value_preds[self.step].copy_(value_preds)
-        self.rewards[self.step].copy_(rewards)
-        self.masks[self.step + 1].copy_(masks)
-
-        self.step = (self.step + 1) % self.num_steps
-
-    def insert_indices(self, indices, obs, recurrent_hidden_states, actions, action_log_probs, value_preds, rewards, masks):
+    def insert(self,
+               obs,
+               recurrent_hidden_states,
+               actions,
+               action_log_probs,
+               value_preds,
+               rewards,
+               masks,
+               indices=None):
+        if indices is None:
+            indices = np.range(self.num_processes)
         for index in indices:
             # np.where returns a tuple of np.arrays
             index = index[0]
@@ -62,7 +62,6 @@ class RolloutStorage(object):
             self.value_preds[step_value, index].copy_(value_preds[index])
             self.rewards[step_value, index].copy_(rewards[index])
             self.masks[step_value + 1, index].copy_(masks[index])
-
             self.steps[index] = (self.steps[index] + 1) % self.num_steps
 
     def get_last(self, tensor):
@@ -96,8 +95,7 @@ class RolloutStorage(object):
                                          self.rewards[step, env_idx]
 
     def feed_forward_generator(self, advantages, num_mini_batch):
-        # num_steps, num_processes = self.rewards.size()[0:2]
-        # batch_size = num_processes * num_steps
+        # TODO: make sure that the values outside of self.steps are not used!
         batch_size = int(np.sum(self.steps))
         assert batch_size >= num_mini_batch, (
             "PPO requires the number of env steps ({}) "

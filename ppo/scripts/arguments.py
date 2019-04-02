@@ -42,9 +42,9 @@ def get_args():
     parser.add_argument('--num-master-steps-per-update', type=int, default=None,
                         help='number of forward steps in A2C (default: 5)')
     # loss and clippings
-    parser.add_argument('--value-loss-coef', type=float, default=0.5,
+    parser.add_argument('--value-loss-coef', type=float, default=1.,
                         help='value loss coefficient (default: 0.5)')
-    parser.add_argument('--entropy-coef', type=float, default=0.01,
+    parser.add_argument('--entropy-coef', type=float, default=0.05,
                         help='entropy term coefficient (default: 0.01)')
     parser.add_argument('--max-grad-norm', type=float, default=0.5,
                         help='max norm of gradients (default: 0.5)')
@@ -81,7 +81,7 @@ def get_args():
     parser.add_argument('--cnn-output-features', type=int, default=512,
                         help='the number of resnet features')
     # evaluation
-    parser.add_argument('--num-eval-episodes', type=int, default=16,
+    parser.add_argument('--num-eval-episodes', type=int, default=8,
                         help='number of episodes to use in evaluation')
     parser.add_argument('--eval-interval', type=int, default=10,
                         help='eval interval, one eval per n updates (default: None)')
@@ -97,7 +97,7 @@ def get_args():
                         help='timestep for a given training')
     parser.add_argument('--log-interval', type=int, default=1,
                         help='log interval, one log per n updates (default: 10)')
-    parser.add_argument('--save-interval', type=int, default=5,
+    parser.add_argument('--save-interval', type=int, default=2,
                         help='save interval, one save per n updates (default: 100)')
     parser.add_argument('--save-gifs', action='store_true', default=False,
                         help='whether to save the gifs of the evaluation environments')

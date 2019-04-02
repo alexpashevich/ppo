@@ -13,7 +13,7 @@ from mime.agent.agent import Agent
 from bc.dataset import Frames
 
 
-SUPPORTED_MIME_ENVS = 'Bowl', 'Salad'
+SUPPORTED_MIME_ENVS = 'Bowl', 'Salad', 'SimplePour'
 
 class MiMEEnv(object):
     def __init__(self, env_name, config, id=0):
@@ -82,6 +82,12 @@ class MiMEEnv(object):
             num_drops = self.env.unwrapped.scene._num_drops
             num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
             return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
+        elif 'SimplePour' in self.env_name:
+            num_drops = 5
+            num_features = 16 + 3 * num_drops
+            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
+        else:
+            raise NotImplementedError
 
     @property
     def action_space(self):
@@ -179,6 +185,7 @@ class MiMEEnv(object):
             action_applied = self._get_null_action_dict()
             action_update = next(action_chain, None)
             if action_update is None:
+                # TODO: remove
                 print('env {} needs a new master action'.format(self._id))
                 self._need_master_action = True
             else:
