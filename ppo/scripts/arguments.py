@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import json
 
 
 def get_args():
@@ -63,8 +64,8 @@ def get_args():
     # hieararchy
     parser.add_argument('--hrlbc-setup', action='store_true', default=False,
                         help='use the setup with pretrained with BC skills')
-    parser.add_argument('--timescale', type=int, default=25,
-                        help='master timescale')
+    parser.add_argument('--timescale', type=json.loads, default=None,
+                        help='dict of timescales corresponding to each skill or the timescale value')
     parser.add_argument('--num-skills', type=int, default=4,
                         help='number of skills')
     parser.add_argument('--no-skip-unused-obs', action='store_true', default=False,

@@ -97,7 +97,7 @@ def main():
             rollouts.insert(
                 obs, recurrent_hidden_states,
                 action, action_log_prob, value, reward, masks,
-                indices=np.where(need_master_action))
+                indices=np.where(need_master_action)[0])
             reward[np.where(done)] = 0
             total_num_env_steps += sum([info['length_after_new_action']
                                         for info in np.array(infos)[np.where(need_master_action)]])

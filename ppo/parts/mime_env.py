@@ -33,7 +33,7 @@ class MiMEEnv(object):
         self._id = id
         self.hrlbc_setup = vars(config).get('hrlbc_setup', False)
         self.observation_type = vars(config).get('input_type', 'depth')
-        self.augmentation = vars(config).get('augmentation', False)
+        self.augmentation = vars(config).get('augmentation', '')
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
@@ -52,8 +52,16 @@ class MiMEEnv(object):
                 config.checkpoint_path)
         else:
             self.action_mean, self.action_std = None, None
+        # now we work with the frames directly here
         self.frames_stack = deque(maxlen=3)
         self.compress_frames = vars(config).get('compress_frames', False)
+        # timescales for skills (hrlbc setup only)
+        self.skills_timescales = vars(config).get('timescale', 50)
+        if isinstance(self.skills_timescales, int):
+            skills_timescales = {}
+            for skill in range(self.num_skills):
+                skills_timescales[str(skill)] = self.skills_timescales
+            self.skills_timescales = skills_timescales
 
     def _load_action_stats(self, checkpoint_path):
         checkpoint_dir = '/'.join(checkpoint_path.split('/')[:-1])
@@ -126,6 +134,7 @@ class MiMEEnv(object):
             observation = Frames.dic_to_tensor(
                 self.frames_stack, channels, Frames.sum_channels(channels),
                 augmentation_str=self.augmentation)
+            observation = self._compress_frames(observation)
         return observation
 
     def _get_null_action_dict(self):
@@ -157,7 +166,7 @@ class MiMEEnv(object):
                 action_dict[action_key] = action_value
             else:
                 action_value = -1 + 2 * (action[0] > action[1])
-                action_dict['grip_velocity'] = action_value * 2
+                action_dict['grip_velocity'] = action_value * 4
         return action_dict
 
     def _filter_action(self, action):
@@ -173,24 +182,40 @@ class MiMEEnv(object):
         # get the action either from numpy or from a script
         if self.hrlbc_setup:
             action_applied = self._action_numpy_to_dict(action)
-            # TODO: update for the flexible timescale
+            real_action, skill = action[:-1], int(action[-1])
+            action_applied = self._action_numpy_to_dict(real_action)
+            skill_timescale = self.skills_timescales[str(skill)]
+            if self._step_counter_after_new_action >= skill_timescale:
+                print('env {} needs a new master action (skill = {}, ts = {})'.format(
+                    self._id, skill, self._step_counter_after_new_action))
+                self._need_master_action = True
+                self._step_counter_after_new_action = 0
+            else:
+                self._need_master_action = False
         else:
             if self._prev_script != action:
                 if self._render:
                     print('got a new script for env {}'.format(self._id))
                 self._prev_script = action
                 self._prev_action_chain = self.env.unwrapped.scene.script_subtask(action)
-                self._step_counter_after_new_action = 0
             action_chain = itertools.chain(*self._prev_action_chain)
             action_applied = self._get_null_action_dict()
             action_update = next(action_chain, None)
             if action_update is None:
                 print('env {} needs a new master action'.format(self._id))
                 self._need_master_action = True
+                self._step_counter_after_new_action = 0
             else:
                 self._need_master_action = False
                 action_applied.update(self._filter_action(action_update))
         return action_applied
+
+    def _compress_frames(self, frames):
+        if self.compress_frames and 'Cam' in self.env_name:
+            buffer = BytesIO()
+            pkl.dump(frames.numpy(), buffer)
+            frames = buffer.getvalue()
+        return frames
 
     def step(self, action):
         action_applied = self._get_action_applied(action)
@@ -203,10 +228,6 @@ class MiMEEnv(object):
         info['need_master_action'] = self._need_master_action
         info['length'] = self._step_counter
         info['length_after_new_action'] = self._step_counter_after_new_action
-        if self.compress_frames and 'Cam' in self.env_name:
-            buffer = BytesIO()
-            pkl.dump(observation.numpy(), buffer)
-            observation = buffer.getvalue()
         return observation, reward, done, info
 
     def reset(self):
@@ -219,10 +240,6 @@ class MiMEEnv(object):
             print('env is reset')
         obs = self.env.reset()
         observation = self._process_obs(obs)
-        if self.compress_frames and 'Cam' in self.env_name:
-            buffer = BytesIO()
-            pkl.dump(observation.numpy(), buffer)
-            observation = buffer.getvalue()
         return observation
 
     def seed(self, seed):

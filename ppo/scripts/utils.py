@@ -194,6 +194,7 @@ def do_master_step(
             # get the skill action
             with torch.no_grad():
                 skill_action = policy.get_worker_action(master_action, skill_obs)
+                skill_action = torch.cat([skill_action, master_action.float()], dim=1)
         else:
             # it is not really a skill action, but we use this name to simplify the code
             skill_action = master_action
@@ -230,11 +231,12 @@ def perform_actions(action_sequence, observation, policy, envs, env_render, args
         done_before = np.array([False] * args.num_processes, dtype=np.bool)
     else:
         gifs_global = None
+    reward = 0
     for action in action_sequence:
         master_action_numpy = [[action] for _ in range(observation.shape[0])]
         master_action = torch.Tensor(master_action_numpy).int()
-        observation, reward, done, _, observation_history = do_master_step(
-            master_action, observation, args.timescale, policy, envs,
+        observation, reward, done, _, need_master_action, observation_history = do_master_step(
+            master_action, observation, reward, policy, envs,
             args.hrlbc_setup,
             env_render=env_render,
             return_observations=True)

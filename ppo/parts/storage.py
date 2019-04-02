@@ -51,8 +51,6 @@ class RolloutStorage(object):
         if indices is None:
             indices = np.range(self.num_processes)
         for index in indices:
-            # np.where returns a tuple of np.arrays
-            index = index[0]
             step_value = self.steps[index]
             self.obs[step_value + 1, index].copy_(obs[index])
             self.recurrent_hidden_states[step_value + 1, index].copy_(recurrent_hidden_states[index])
