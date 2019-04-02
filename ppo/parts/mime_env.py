@@ -185,7 +185,6 @@ class MiMEEnv(object):
     def _get_action_applied(self, action):
         # get the action either from numpy or from a script
         if self.hrlbc_setup:
-            action_applied = self._action_numpy_to_dict(action)
             real_action, skill = action[:-1], int(action[-1])
             action_applied = self._action_numpy_to_dict(real_action)
             skill_timescale = self.skills_timescales[str(skill)]
