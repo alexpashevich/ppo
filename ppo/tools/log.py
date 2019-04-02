@@ -58,18 +58,19 @@ def log_eval(total_steps, stats):
             add_summary('env/{}_max'.format(stat_key), np.max(stat_value), total_steps, 'eval')
 
 
-def save_model(save_path, policy, optimizer, epoch, device, envs, config, eval=False):
+def save_model(save_path, policy, optimizer, epoch, env_steps, device, envs, args, eval=False):
     if save_path == "":
         return
     # A really ugly way to save a model to CPU
-    save_model = policy
     if device.type != 'cpu':
-        save_model = copy.deepcopy(policy).cpu()
-    save_model = tuple([
-        save_model,
-        optimizer.state_dict(),
-        getattr(get_vec_normalize(envs), 'ob_rms', None),
-        epoch, config])
+        policy = copy.deepcopy(policy).cpu()
+    save_model = dict(
+        policy=policy,
+        optimizer_state_dict=optimizer.state_dict(),
+        ob_rms=getattr(get_vec_normalize(envs), 'ob_rms', None),
+        start_epoch=epoch,
+        start_step=env_steps,
+        args=args)
 
     model_name = 'model_eval_{}.pt'.format(epoch) if eval else 'model.pt'
     model_path = os.path.join(save_path, model_name)

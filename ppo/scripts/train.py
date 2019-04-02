@@ -13,18 +13,17 @@ import ppo.scripts.utils as utils
 from ppo.scripts.arguments import get_args
 
 
-def init_training(args):
+def init_training(args, logdir):
     render_cached = args.render
-    logdir = os.path.join(args.logdir, args.timestamp)
 
     # get the device before loading to enable the GPU/CPU transfer
     device = bc_misc.get_device(args.device)
     print('Running the experiments on {}'.format(device))
 
     # try to load from a checkpoint
-    loaded_tuple = misc.try_to_load_model(logdir)
-    if loaded_tuple:
-        policy, optimizer_state_dict, ob_rms, start_epoch, args = loaded_tuple
+    loaded_dict = misc.try_to_load_model(logdir, device)
+    if loaded_dict:
+        args = loaded_dict['args']
     misc.seed_torch(args)
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 
@@ -37,26 +36,31 @@ def init_training(args):
 
     # create the policy
     action_space = Discrete(args.num_skills)
-    if not loaded_tuple:
+    if loaded_dict:
+        policy = loaded_dict['policy']
+        start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
+    else:
         policy = utils.create_policy(args, envs_train, device, action_space, logdir)
-        start_epoch = 0
+        start_step, start_epoch = 0, 0
     policy.to(device)
 
     # create the PPO algo
     agent = utils.create_agent(args, policy)
 
-    if loaded_tuple:
+    if loaded_dict:
         # load normalization and optimizer statistics
-        misc.load_ob_rms(ob_rms, envs_train)
-        misc.load_optimizer(agent.optimizer, optimizer_state_dict, device)
+        misc.load_ob_rms(loaded_dict['ob_rms'], envs_train)
+        misc.load_optimizer(agent.optimizer, loaded_dict['optimizer_state_dict'], device)
 
     all_envs = envs_train, envs_eval, env_render_train, env_render_eval
-    return logdir, args, device, all_envs, policy, start_epoch, agent, action_space
+    return args, device, all_envs, policy, start_epoch, start_step, agent, action_space
 
 
 def main():
     args = get_args()
-    logdir, args, device, all_envs, policy, start_epoch, agent, action_space = init_training(args)
+    logdir = os.path.join(args.logdir, args.timestamp)
+    args, device, all_envs, policy, start_epoch, start_step, agent, action_space = init_training(
+        args, logdir)
     envs_train, envs_eval, env_render_train, env_render_eval = all_envs
     action_space_skills = Box(-np.inf, np.inf, (args.dim_skill_action,), dtype=np.float)
     rollouts, obs = utils.init_rollout_storage(
@@ -73,7 +77,7 @@ def main():
         # utils.perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs_train, None, args)
         utils.perform_actions([5,0,0,1,2,3,4,4,6,0,0,1,2,3], obs, policy, envs_train, None, args)
         import pudb; pudb.set_trace()
-    epoch, reward, total_num_env_steps = start_epoch, 0, 0
+    epoch, env_steps, reward = start_epoch, start_step, 0
     need_master_action, prev_policy_outputs = np.ones((args.num_processes,)), None
     while True:
         print('Starting epoch {}'.format(epoch))
@@ -99,7 +103,7 @@ def main():
                 action, action_log_prob, value, reward, masks,
                 indices=np.where(need_master_action)[0])
             reward[np.where(done)] = 0
-            total_num_env_steps += sum([info['length_after_new_action']
+            env_steps += sum([info['length_after_new_action']
                                         for info in np.array(infos)[np.where(need_master_action)]])
 
         # master policy training
@@ -116,25 +120,27 @@ def main():
             utils.make_frozen_skills_check(policy, *assert_tensors)
 
         if epoch % args.save_interval == 0:
-            log.save_model(logdir, policy, agent.optimizer, epoch, device, envs_train, args, eval=True)
+            log.save_model(
+                logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args, eval=True)
 
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
-                total_num_env_steps, start, stats_global, action_loss, value_loss, dist_entropy)
+                env_steps, start, stats_global, action_loss, value_loss, dist_entropy)
 
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
         if args.render or (len(stats_global['length']) > 0 and is_eval_time):
-            log.save_model(logdir, policy, agent.optimizer, epoch, device, envs_train, args, eval=True)
+            log.save_model(
+                logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args, eval=True)
             if not args.eval_offline:
                 envs_eval, stats_eval, gifs_eval = utils.evaluate(
                     policy, args, device, envs_train, envs_eval, env_render_eval)
-                log.log_eval(total_num_env_steps, stats_eval)
+                log.log_eval(env_steps, stats_eval)
                 if gifs_eval:
                     gifs.save(logdir, gifs_eval, epoch)
             else:
                 print('Saving the model after epoch {} for the offline evaluation'.format(epoch))
         epoch += 1
-        if total_num_env_steps > args.num_frames:
+        if env_steps > args.num_frames:
             print('Number of env steps reached the maximum number of frames')
             break
 

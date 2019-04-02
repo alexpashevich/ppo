@@ -47,16 +47,22 @@ def seed_torch(args):
         torch.cuda.manual_seed(args.seed)
     torch.set_num_threads(1)
 
-def try_to_load_model(logdir):
+
+def try_to_load_model(logdir, device):
     loaded_tuple = None
     for model_name in ('model_current.pt', 'model.pt'):
         try:
-            loaded_tuple = torch.load(os.path.join(logdir, model_name))
+            if str(device) == 'cpu':
+                loaded_tuple = torch.load(
+                    os.path.join(logdir, model_name), map_location=lambda storage, loc: storage)
+            else:
+                loaded_tuple = torch.load(os.path.join(logdir, model_name))
             print('loaded a policy from {}'.format(os.path.join(logdir, model_name)))
             break
         except Exception as e:
             pass
     return loaded_tuple
+
 
 # dirty stuff, TODO: refactor later
 def map_state_dict_key(key, num_skills):
