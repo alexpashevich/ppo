@@ -13,7 +13,7 @@ from mime.agent.agent import Agent
 from bc.dataset import Frames
 
 
-SUPPORTED_MIME_ENVS = 'Bowl', 'Salad', 'SimplePour'
+SUPPORTED_MIME_ENVS = 'Bowl', 'Salad', 'SimplePour', 'SimplePourNoDrops'
 
 class MiMEEnv(object):
     def __init__(self, env_name, config, id=0):
@@ -89,6 +89,10 @@ class MiMEEnv(object):
             num_cups = self.env.unwrapped.scene._num_cups
             num_drops = self.env.unwrapped.scene._num_drops
             num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
+            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
+        elif 'SimplePourNoDrops' in self.env_name:
+            num_drops = 5
+            num_features = 16
             return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
         elif 'SimplePour' in self.env_name:
             num_drops = 5
