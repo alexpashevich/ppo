@@ -26,7 +26,7 @@ class MiMEEnv(object):
         if hasattr(self.env.unwrapped.scene, 'set_rl_mode'):
             self.env.unwrapped.scene.set_rl_mode()
         else:
-            print('WARNING: the scene does not have set_rl_mode function')  # TODO: remove this
+            print('WARNING: the scene does not have set_rl_mode function')
         self.num_skills = vars(config).get('num_skills', 4)
         self.timescale = vars(config).get('timescale', 25)
         self._render = vars(config).get('render', False) and id == 0
@@ -185,7 +185,6 @@ class MiMEEnv(object):
             action_applied = self._get_null_action_dict()
             action_update = next(action_chain, None)
             if action_update is None:
-                # TODO: remove
                 print('env {} needs a new master action'.format(self._id))
                 self._need_master_action = True
             else:

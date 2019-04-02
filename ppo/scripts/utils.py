@@ -132,7 +132,7 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
             prev_policy_outputs = value_unused, action, action_log_prob_unused, recurrent_hidden_states
 
         # Observe reward and next obs
-        master_step_output = do_master_step_flex(
+        master_step_output = do_master_step(
             action, obs, reward, policy, envs_eval,
             hrlbc_setup=args.hrlbc_setup,
             env_render=env_render,
@@ -180,7 +180,7 @@ def get_policy_values(
     return value, action, log_prob, recurrent_states
 
 
-def do_master_step_flex(
+def do_master_step(
         master_action, master_obs, master_reward, policy, envs,
         hrlbc_setup=False, env_render=None, return_observations=False, evaluation=False):
     print('master action = {}'.format(master_action[:, 0]))
@@ -221,6 +221,7 @@ def do_master_step_flex(
 
 
 def perform_actions(action_sequence, observation, policy, envs, env_render, args):
+    # TODO: this does not work probably
     # observation = envs.reset()
     # if env_render:
     #     env_render.reset()

@@ -84,10 +84,9 @@ def main():
             prev_policy_outputs = value, action, action_log_prob, recurrent_hidden_states
 
             # Observe reward and next obs
-            obs, reward, done, infos, need_master_action = utils.do_master_step_flex(
+            obs, reward, done, infos, need_master_action = utils.do_master_step(
                 action, rollouts.get_last(rollouts.obs),
                 reward, policy, envs_train, args.hrlbc_setup, env_render_train)
-            # TODO: reset_early_terminated???
             master_steps_done += np.sum(need_master_action)
 
             stats_global, stats_local = stats.update(

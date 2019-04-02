@@ -9,7 +9,6 @@ def _flatten_helper(T, N, _tensor):
 
 class RolloutStorage(object):
     def __init__(self, num_steps, num_processes, obs_shape, action_space, recurrent_hidden_state_size):
-        # TODO: is it correct? lines 51 and further
         num_steps *= num_processes
         self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
         self.recurrent_hidden_states = torch.zeros(num_steps + 1, num_processes, recurrent_hidden_state_size)
@@ -95,7 +94,6 @@ class RolloutStorage(object):
                                          self.rewards[step, env_idx]
 
     def feed_forward_generator(self, advantages, num_mini_batch):
-        # TODO: make sure that the values outside of self.steps are not used!
         batch_size = int(np.sum(self.steps))
         assert batch_size >= num_mini_batch, (
             "PPO requires the number of env steps ({}) "
