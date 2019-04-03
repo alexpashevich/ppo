@@ -73,25 +73,22 @@ def init_rollout_storage(
 
 
 def init_frozen_skills_check(obs, policy):
-    # TODO: reimplement
-    return None, None, None, None
     # GT to check whether the skills stay unchanged
     with torch.no_grad():
         test_tensor = obs.clone()
         test_master = np.random.randint(0, policy.base.num_skills, len(obs))
         policy.base.resnet.eval()
         features_check = policy.base.resnet(test_tensor)
-        skills_check = policy.base(test_tensor, None, None, test_master)
+        skills_check = policy.base(test_tensor, None, None, None, test_master)
     return test_tensor, test_master, features_check, skills_check
 
 
-def make_frozen_skills_check(policy, test_tensor, test_master, feature_check, skills_check):
-    # TODO: reimplement
-    return
-    # check if the skills do not change by the RL training
+def make_frozen_skills_check(
+        policy, test_tensor, test_master, feature_check, skills_check):
+    # check if the skills are not changed by the the RL updates
     with torch.no_grad():
         features_after_upd = policy.base.resnet(test_tensor)
-        skills_after_upd = policy.base(test_tensor, None, None, test_master)
+        skills_after_upd = policy.base(test_tensor, None, None, None, test_master)
     assert (features_after_upd == feature_check).all()
     assert (skills_after_upd == skills_check).all()
 
@@ -243,7 +240,6 @@ def do_master_step(
 
 
 def perform_actions(action_sequence, observation, policy, envs, env_render, args):
-    # TODO: this does not work probably
     # observation = envs.reset()
     # if env_render:
     #     env_render.reset()
