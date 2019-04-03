@@ -135,9 +135,13 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
     print('Evaluating...')
     while len(stats_global['return']) < args.num_eval_episodes:
         with torch.no_grad():
+            if last_actions is None:
+                last_actions_local = None
+            else:
+                last_actions_local = last_actions[np.where(need_master_action)]
             value_unused, action, action_log_prob_unused, recurrent_hidden_states = get_policy_values(
                 policy,
-                (obs, last_actions[np.where(need_master_action)], recurrent_hidden_states, masks),
+                (obs, last_actions_local, recurrent_hidden_states, masks),
                 need_master_action, prev_policy_outputs, deterministic=True)
             prev_policy_outputs = value_unused, action, action_log_prob_unused, recurrent_hidden_states
 
@@ -149,12 +153,13 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
             return_observations=args.save_gifs,
             evaluation=True)
         obs, reward, done, infos, need_master_action = master_step_output[:5]
-        for env_idx in np.where(need_master_action)[0]:
-            last_actions[env_idx, :-1] = last_actions[env_idx, 1:]
-            last_actions[env_idx, -1] = action[env_idx, 0]
-        for env_idx, done_ in enumerate(done):
-            if done_:
-                last_actions[env_idx] = -1.
+        if last_actions is not None:
+            for env_idx in np.where(need_master_action)[0]:
+                last_actions[env_idx, :-1] = last_actions[env_idx, 1:]
+                last_actions[env_idx, -1] = action[env_idx, 0]
+            for env_idx, done_ in enumerate(done):
+                if done_:
+                    last_actions[env_idx] = -1.
         if args.save_gifs:
             # saving gifs only works for the BCRL setup
             gifs_global, gifs_local = gifs.update(
