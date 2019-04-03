@@ -73,6 +73,8 @@ def init_rollout_storage(
 
 
 def init_frozen_skills_check(obs, policy):
+    # TODO: reimplement
+    return None, None, None, None
     # GT to check whether the skills stay unchanged
     with torch.no_grad():
         test_tensor = obs.clone()
@@ -84,6 +86,8 @@ def init_frozen_skills_check(obs, policy):
 
 
 def make_frozen_skills_check(policy, test_tensor, test_master, feature_check, skills_check):
+    # TODO: reimplement
+    return
     # check if the skills do not change by the RL training
     with torch.no_grad():
         features_after_upd = policy.base.resnet(test_tensor)
@@ -125,13 +129,18 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
     else:
         gifs_global = None
 
-    need_master_action, prev_policy_outputs = np.ones((args.num_processes,)), None
+    need_master_action, prev_policy_outputs = np.ones((num_processes,)), None
     reward = 0
+    if args.action_memory == 0:
+        last_actions = None
+    else:
+        last_actions = -torch.ones(num_processes, args.action_memory).type_as(obs)
     print('Evaluating...')
     while len(stats_global['return']) < args.num_eval_episodes:
         with torch.no_grad():
             value_unused, action, action_log_prob_unused, recurrent_hidden_states = get_policy_values(
-                policy, (obs, recurrent_hidden_states, masks),
+                policy,
+                (obs, last_actions[np.where(need_master_action)], recurrent_hidden_states, masks),
                 need_master_action, prev_policy_outputs, deterministic=True)
             prev_policy_outputs = value_unused, action, action_log_prob_unused, recurrent_hidden_states
 
@@ -143,6 +152,12 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
             return_observations=args.save_gifs,
             evaluation=True)
         obs, reward, done, infos, need_master_action = master_step_output[:5]
+        for env_idx in np.where(need_master_action)[0]:
+            last_actions[env_idx, :-1] = last_actions[env_idx, 1:]
+            last_actions[env_idx, -1] = action[env_idx, 0]
+        for env_idx, done_ in enumerate(done):
+            if done_:
+                last_actions[env_idx] = -1.
         if args.save_gifs:
             # saving gifs only works for the BCRL setup
             gifs_global, gifs_local = gifs.update(
@@ -162,13 +177,12 @@ def get_policy_values(
     ''' The function is sampling the policy actions '''
     if isinstance(rollouts_or_explicit_tuple, (tuple, list)):
         # during evaluation we store the policy output in variables so we pass them directly
-        raise NotImplementedError
-        obs, recurrent_states_input, masks = rollouts_or_explicit_tuple
+        obs, last_actions, recurrent_states_input, masks = rollouts_or_explicit_tuple
     else:
         # during trainin we store the policy output in rollouts so we pass the rollouts
         rollouts = rollouts_or_explicit_tuple
         obs = rollouts.get_last(rollouts.obs)
-        last_actions = rollouts.get_last(rollouts.actions)
+        last_actions = rollouts.get_last(rollouts.actions, processes=np.where(need_master_action)[0])
         recurrent_states_input = rollouts.get_last(rollouts.recurrent_hidden_states)
         masks = rollouts.get_last(rollouts.masks)
     with torch.no_grad():
@@ -182,7 +196,7 @@ def get_policy_values(
             value, action, log_prob, recurrent_states = prev_policy_outputs
             indices = np.where(need_master_action)
             value[indices], action[indices], log_prob[indices], recurrent_states[indices] = policy.act(
-                obs[indices], last_actions[indices], recurrent_states_input[indices],
+                obs[indices], last_actions, recurrent_states_input[indices],
                 masks[indices], deterministic)
     return value, action, log_prob, recurrent_states
 

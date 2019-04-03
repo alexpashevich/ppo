@@ -97,10 +97,16 @@ def load_from_checkpoint(policy, path, device):
         key_new = map_state_dict_key(key, policy.base.num_skills)
         state_dict_renamed[key_new] = value
 
-    keys_diffence = set(policy.state_dict().keys()) - set(state_dict_renamed)
+    keys_difference = set(policy.state_dict().keys()) - set(state_dict_renamed)
     # the strict param is for the critics layers only
-    assert all(['base.critic' in key for key in keys_diffence])
-    policy.load_state_dict(state_dict_renamed, strict=False)
+    assert all(['base.critic' in key for key in keys_difference])
+    # policy.load_state_dict(state_dict_renamed, strict=False)
+    state_dict = {}
+    # TODO: do not remove the actor layers
+    for key in state_dict_renamed.keys():
+        if 'actor' not in key:
+            state_dict[key] = state_dict_renamed[key]
+    policy.load_state_dict(state_dict, strict=False)
     print('loaded the BC checkpoint from {}'.format(path))
 
 def load_optimizer(optimizer, optimizer_state_dict, device):

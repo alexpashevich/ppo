@@ -82,7 +82,7 @@ class MasterPolicy(Policy):
         super(MasterPolicy, self).__init__(obs_shape, action_space, base_kwargs)
 
     def get_worker_action(self, master_action, observation):
-        worker_action = self.base(observation, None, None, master_action=master_action)
+        worker_action = self.base(observation, None, None, None, master_action=master_action)
         return worker_action
 
 

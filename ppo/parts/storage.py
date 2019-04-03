@@ -69,9 +69,9 @@ class RolloutStorage(object):
             self.masks[step_value + 1, index].copy_(masks[index])
             self.steps[index] = (self.steps[index] + 1) % self.num_steps
 
-    def get_last(self, tensor):
+    def get_last(self, tensor, *args, **kwargs):
         if tensor is self.actions:
-            return self._get_last_actions()
+            return self._get_last_actions(*args, **kwargs)
         lasts = []
         for index in range(tensor.shape[1]):
             lasts.append(tensor[self.steps[index], index])

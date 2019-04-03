@@ -132,9 +132,7 @@ def main():
         if args.render or (len(stats_global['length']) > 0 and is_eval_time):
             log.save_model(
                 logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args, eval=True)
-            # TODO: remove
-            if False:
-            # if not args.eval_offline:
+            if not args.eval_offline:
                 envs_eval, stats_eval, gifs_eval = utils.evaluate(
                     policy, args, device, envs_train, envs_eval, env_render_eval)
                 log.log_eval(env_steps, stats_eval)
