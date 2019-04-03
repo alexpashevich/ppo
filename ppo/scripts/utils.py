@@ -57,8 +57,12 @@ def create_agent(args, policy):
 def init_rollout_storage(
         args, envs_train, env_render_train, policy, action_space, action_space_skills, device):
     rollouts = RolloutStorage(
-        args.num_master_steps_per_update, args.num_processes, envs_train.observation_space.shape,
-        action_space, policy.recurrent_hidden_state_size)
+        args.num_master_steps_per_update,
+        args.num_processes,
+        envs_train.observation_space.shape,
+        action_space,
+        policy.recurrent_hidden_state_size,
+        action_memory=args.action_memory)
 
     obs = envs_train.reset()
     if env_render_train:
@@ -158,25 +162,28 @@ def get_policy_values(
     ''' The function is sampling the policy actions '''
     if isinstance(rollouts_or_explicit_tuple, (tuple, list)):
         # during evaluation we store the policy output in variables so we pass them directly
+        raise NotImplementedError
         obs, recurrent_states_input, masks = rollouts_or_explicit_tuple
     else:
         # during trainin we store the policy output in rollouts so we pass the rollouts
         rollouts = rollouts_or_explicit_tuple
         obs = rollouts.get_last(rollouts.obs)
+        last_actions = rollouts.get_last(rollouts.actions)
         recurrent_states_input = rollouts.get_last(rollouts.recurrent_hidden_states)
         masks = rollouts.get_last(rollouts.masks)
     with torch.no_grad():
         if np.all(need_master_action):
             # each environment requires a master action
             value, action, log_prob, recurrent_states = policy.act(
-                obs, recurrent_states_input, masks, deterministic)
+                obs, last_actions, recurrent_states_input, masks, deterministic)
         else:
             # only several environments require a master action
             # update only the values of those
             value, action, log_prob, recurrent_states = prev_policy_outputs
             indices = np.where(need_master_action)
             value[indices], action[indices], log_prob[indices], recurrent_states[indices] = policy.act(
-                obs[indices], recurrent_states_input[indices], masks[indices], deterministic)
+                obs[indices], last_actions[indices], recurrent_states_input[indices],
+                masks[indices], deterministic)
     return value, action, log_prob, recurrent_states
 
 

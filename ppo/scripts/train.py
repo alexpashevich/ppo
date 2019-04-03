@@ -104,12 +104,13 @@ def main():
                 indices=np.where(need_master_action)[0])
             reward[np.where(done)] = 0
             env_steps += sum([info['length_after_new_action']
-                                        for info in np.array(infos)[np.where(need_master_action)]])
+                              for info in np.array(infos)[np.where(need_master_action)]])
 
         # master policy training
         with torch.no_grad():
             next_value = policy.get_value(
                 rollouts.get_last(rollouts.obs),
+                rollouts.get_last(rollouts.actions),
                 rollouts.get_last(rollouts.recurrent_hidden_states),
                 rollouts.get_last(rollouts.masks)).detach()
         rollouts.compute_returns(next_value, args.use_gae, args.gamma, args.tau)
@@ -131,7 +132,9 @@ def main():
         if args.render or (len(stats_global['length']) > 0 and is_eval_time):
             log.save_model(
                 logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args, eval=True)
-            if not args.eval_offline:
+            # TODO: remove
+            if False:
+            # if not args.eval_offline:
                 envs_eval, stats_eval, gifs_eval = utils.evaluate(
                     policy, args, device, envs_train, envs_eval, env_render_eval)
                 log.log_eval(env_steps, stats_eval)

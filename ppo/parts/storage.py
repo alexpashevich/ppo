@@ -8,10 +8,17 @@ def _flatten_helper(T, N, _tensor):
 
 
 class RolloutStorage(object):
-    def __init__(self, num_steps, num_processes, obs_shape, action_space, recurrent_hidden_state_size):
+    def __init__(self,
+                 num_steps,
+                 num_processes,
+                 obs_shape,
+                 action_space,
+                 recurrent_hidden_state_size,
+                 action_memory=0):
         num_steps *= num_processes
         self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
-        self.recurrent_hidden_states = torch.zeros(num_steps + 1, num_processes, recurrent_hidden_state_size)
+        self.recurrent_hidden_states = torch.zeros(
+            num_steps + 1, num_processes, recurrent_hidden_state_size)
         self.rewards = torch.zeros(num_steps, num_processes, 1)
         self.value_preds = torch.zeros(num_steps + 1, num_processes, 1)
         self.returns = torch.zeros(num_steps + 1, num_processes, 1)
@@ -27,6 +34,7 @@ class RolloutStorage(object):
 
         self.num_steps = num_steps
         self.num_processes = num_processes
+        self.action_memory = action_memory
         self.steps = np.zeros(num_processes, dtype=np.int32)
 
     def to(self, device):
@@ -62,10 +70,35 @@ class RolloutStorage(object):
             self.steps[index] = (self.steps[index] + 1) % self.num_steps
 
     def get_last(self, tensor):
+        if tensor is self.actions:
+            return self._get_last_actions()
         lasts = []
         for index in range(tensor.shape[1]):
             lasts.append(tensor[self.steps[index], index])
         return torch.stack(lasts)
+
+    def _get_last_actions(self, steps=None, processes=None):
+        if self.action_memory == 0:
+            return None
+        if processes is None:
+            processes = np.arange(self.num_processes)
+        if steps is None:
+            steps = self.steps[processes]
+        last_actions = -torch.ones(len(processes), self.action_memory).type_as(self.obs)
+        for idx, (step, process) in enumerate(zip(steps, processes)):
+            process_resets = np.where(self.masks[:step + 1, process, 0] == 0)[0]
+            if process_resets.shape[0] > 0:
+                last_reset = process_resets.max()
+            else:
+                last_reset = 0
+            actions_available = np.clip(step - last_reset, 0, self.action_memory)
+            # print('env step = {}, available = {}, last_reset = {}'.format(
+                process, actions_available, last_reset))
+            if actions_available > 0:
+                last_actions_ = self.actions[step - actions_available: step, process, 0]
+                last_actions[idx, -actions_available:] = last_actions_
+        # print('last_actions = {}'.format(last_actions))
+        return last_actions
 
     def after_update(self):
         last_indices = np.stack((self.steps, np.arange(self.steps.shape[0])))
@@ -114,7 +147,12 @@ class RolloutStorage(object):
             old_action_log_probs_batch = self.action_log_probs[indices]
             adv_targ = advantages[indices]
 
-            yield obs_batch, recurrent_hidden_states_batch, actions_batch, \
+            timesteps, env_idxs = indices
+            last_actions_batch = self._get_last_actions(timesteps, env_idxs)
+            # TODO: remove after debug
+            # next_last_action = self._get_last_actions(timesteps + 1, env_idxs)
+            # assert all(next_last_action[:, -1:] == actions_batch.type_as(next_last_action))
+            yield obs_batch, last_actions_batch, recurrent_hidden_states_batch, actions_batch, \
                 value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ
 
     def recurrent_generator(self, advantages, num_mini_batch):

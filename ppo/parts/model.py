@@ -49,8 +49,8 @@ class Policy(nn.Module):
     def forward(self, inputs, rnn_hxs, masks):
         raise NotImplementedError
 
-    def act(self, inputs, rnn_hxs, masks, deterministic=False):
-        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+    def act(self, inputs, actions, rnn_hxs, masks, deterministic=False):
+        value, actor_features, rnn_hxs = self.base(inputs, actions, rnn_hxs, masks)
         dist = self.dist(actor_features)
 
         if deterministic:
@@ -63,12 +63,12 @@ class Policy(nn.Module):
 
         return value, action, action_log_probs, rnn_hxs
 
-    def get_value(self, inputs, rnn_hxs, masks):
-        value, _, _ = self.base(inputs, rnn_hxs, masks)
+    def get_value(self, inputs, actions, rnn_hxs, masks):
+        value, _, _ = self.base(inputs, actions, rnn_hxs, masks)
         return value
 
-    def evaluate_actions(self, inputs, rnn_hxs, masks, action):
-        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
+    def evaluate_actions(self, inputs, actions, rnn_hxs, masks, action):
+        value, actor_features, rnn_hxs = self.base(inputs, actions, rnn_hxs, masks)
         dist = self.dist(actor_features)
 
         action_log_probs = dist.log_probs(action)
@@ -143,7 +143,12 @@ class NNBase(nn.Module):
 
 
 class MLPBase(NNBase):
-    def __init__(self, num_inputs, recurrent_policy=False, hidden_size=64, **kwargs):
+    def __init__(self,
+                 num_inputs,
+                 recurrent_policy=False,
+                 hidden_size=64,
+                 action_memory=0,
+                 **kwargs):
         super(MLPBase, self).__init__(recurrent_policy, num_inputs, hidden_size)
 
         if recurrent_policy:
@@ -154,14 +159,14 @@ class MLPBase(NNBase):
             lambda x: nn.init.constant_(x, 0))
 
         self.actor = nn.Sequential(
-            init_(nn.Linear(num_inputs, hidden_size)),
+            init_(nn.Linear(num_inputs + action_memory, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
         )
 
         self.critic = nn.Sequential(
-            init_(nn.Linear(num_inputs, hidden_size)),
+            init_(nn.Linear(num_inputs + action_memory, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
@@ -171,8 +176,13 @@ class MLPBase(NNBase):
 
         self.train()
 
-    def forward(self, inputs, rnn_hxs, masks):
-        x = inputs
+    def forward(self, inputs, actions, rnn_hxs, masks):
+        if actions is not None:
+            # agent has a memory
+            x = torch.cat((inputs, actions), dim=1)
+        else:
+            # the input is the frames stack
+            x = inputs
 
         if self.is_recurrent:
             x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
@@ -193,6 +203,7 @@ class ResnetBase(NNBase):
             recurrent_policy=False,  # is not supported
             hidden_size=64,
             cnn_output_features=512,
+            action_memory=0,
             archi='resnet18',
             pretrained=False,
             **kwargs):
@@ -217,14 +228,14 @@ class ResnetBase(NNBase):
             lambda x: nn.init.constant_(x, 0))
 
         self.actor = nn.Sequential(
-            init_(nn.Linear(cnn_output_features, hidden_size)),
+            init_(nn.Linear(cnn_output_features + action_memory, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
         )
 
         self.critic = nn.Sequential(
-            init_(nn.Linear(cnn_output_features, hidden_size)),
+            init_(nn.Linear(cnn_output_features + action_memory, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
@@ -253,10 +264,17 @@ class ResnetBase(NNBase):
 
         self.train()
 
-    def forward(self, inputs, unused_rnn_hxs, unused_masks, master_action=None):
+    def forward(self, inputs, actions, unused_rnn_hxs, unused_masks, master_action=None):
         # we now reshape the observations inside each environment
         # we do not use rnn_hxs but keep it for compatibility
-        features = self.resnet(inputs)
+        if actions is not None:
+            # agent has a memory
+            assert master_action is None
+            features = self.resnet(inputs)
+            features = torch.cat((features, actions), dim=1)
+        else:
+            # the input is the frames stack
+            features = self.resnet(inputs)
         if master_action is None:
             # this is the policy step itself
             hidden_critic = self.critic(features.detach())

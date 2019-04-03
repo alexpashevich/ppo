@@ -28,6 +28,8 @@ def get_args():
                         help='add timestep to observations')
     parser.add_argument('--input-type', type=str, default='depth',
                         help='type of input for the conv nets')
+    parser.add_argument('--action-memory', type=int, default=0,
+                        help='number of last actions to pass to the agent')
     # BC stuff
     parser.add_argument('--augmentation', type=str, default='',
                         help='which data augmentation to use for the frames')
