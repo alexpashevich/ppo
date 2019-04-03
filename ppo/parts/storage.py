@@ -93,7 +93,7 @@ class RolloutStorage(object):
                 last_reset = 0
             actions_available = np.clip(step - last_reset, 0, self.action_memory)
             # print('env step = {}, available = {}, last_reset = {}'.format(
-                process, actions_available, last_reset))
+            #     process, actions_available, last_reset))
             if actions_available > 0:
                 last_actions_ = self.actions[step - actions_available: step, process, 0]
                 last_actions[idx, -actions_available:] = last_actions_
