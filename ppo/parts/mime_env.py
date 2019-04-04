@@ -189,8 +189,8 @@ class MiMEEnv(object):
             action_applied = self._action_numpy_to_dict(real_action)
             skill_timescale = self.skills_timescales[str(skill)]
             if self._step_counter_after_new_action >= skill_timescale:
-                print('env {} needs a new master action (skill = {}, ts = {})'.format(
-                    self._id, skill, self._step_counter_after_new_action))
+                # print('env {} needs a new master action (skill = {}, ts = {})'.format(
+                #     self._id, skill, self._step_counter_after_new_action))
                 self._need_master_action = True
                 self._step_counter_after_new_action = 0
             else:
@@ -205,7 +205,7 @@ class MiMEEnv(object):
             action_applied = self._get_null_action_dict()
             action_update = next(action_chain, None)
             if action_update is None:
-                print('env {} needs a new master action'.format(self._id))
+                # print('env {} needs a new master action'.format(self._id))
                 self._need_master_action = True
                 self._step_counter_after_new_action = 0
             else:

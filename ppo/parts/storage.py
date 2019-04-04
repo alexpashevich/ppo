@@ -134,7 +134,7 @@ class RolloutStorage(object):
         sampler = BatchSampler(SubsetRandomSampler(range(batch_size)), mini_batch_size, drop_last=False)
         # get the (i, j) indices of the filled transitions in the right order
         transitions_ordered_indices = np.concatenate(
-            [np.stack((range(s), [i] * s)) for i, s in enumerate(self.steps)], axis=1)
+            [np.stack((range(s), [i] * s)) for i, s in enumerate(self.steps) if s > 0], axis=1)
         for indices in sampler:
             # replace the batch indices i by rollouts indices (i, j)
             indices = transitions_ordered_indices[:, indices]

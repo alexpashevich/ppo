@@ -206,7 +206,7 @@ def get_policy_values(
 def do_master_step(
         master_action, master_obs, master_reward, policy, envs,
         hrlbc_setup=False, env_render=None, return_observations=False, evaluation=False):
-    print('master action = {}'.format(master_action[:, 0]))
+    # print('master action = {}'.format(master_action[:, 0]))
     skill_obs = master_obs
     if return_observations:
         envs_history = {'observations': [[] for _ in range(master_action.shape[0])],
