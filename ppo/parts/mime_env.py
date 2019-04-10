@@ -34,6 +34,7 @@ class MiMEEnv(object):
         self.hrlbc_setup = vars(config).get('hrlbc_setup', False)
         self.observation_type = vars(config).get('input_type', 'depth')
         self.augmentation = vars(config).get('augmentation', '')
+        self.num_frames_stacked = vars(config).get('num_channels', 3)
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
@@ -53,7 +54,7 @@ class MiMEEnv(object):
         else:
             self.action_mean, self.action_std = None, None
         # now we work with the frames directly here
-        self.frames_stack = deque(maxlen=3)
+        self.frames_stack = deque(maxlen=self.num_frames_stacked)
         self.compress_frames = vars(config).get('compress_frames', False)
         # timescales for skills (hrlbc setup only)
         self.skills_timescales = vars(config).get('timescale', 50)
@@ -77,9 +78,9 @@ class MiMEEnv(object):
     def observation_space(self):
         if 'Cam' in self.env_name:
             if self.observation_type == 'depth':
-                observation_dim = 1 * 3
+                observation_dim = 1 * self.num_frames_stacked
             elif self.observation_type == 'rgbd':
-                observation_dim = 4 * 3
+                observation_dim = 4 * self.num_frames_stacked
             else:
                 raise NotImplementedError
             return Box(-np.inf, np.inf, (observation_dim, 224, 224), dtype=np.float)
@@ -90,12 +91,11 @@ class MiMEEnv(object):
             num_drops = self.env.unwrapped.scene._num_drops
             num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
             return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
-        elif 'SimplePourNoDrops' in self.env_name:
-            num_drops = 5
-            num_features = 16
-            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
         elif 'SimplePour' in self.env_name:
-            num_drops = 5
+            if 'NoDrops' in self.env_name:
+                num_drops = 0
+            else:
+                num_drops = 5
             num_features = 16 + 3 * num_drops
             return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
         else:
@@ -132,7 +132,7 @@ class MiMEEnv(object):
             if 'mask0' in obs_dict:
                 obs_im['mask'] = obs_dict['mask0'].copy()
             self.frames_stack.append(obs_im)
-            while len(self.frames_stack) < 3:
+            while len(self.frames_stack) < self.num_frames_stacked:
                 # if this is the first observation after reset
                 self.frames_stack.append(obs_im)
             observation = Frames.dic_to_tensor(
