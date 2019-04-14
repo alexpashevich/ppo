@@ -7,34 +7,25 @@ import pickle as pkl
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from shutil import copyfile
 from io import BytesIO
+
 from ppo.tools.envs import VecPyTorchFrameStack, make_vec_envs, make_env
 from ppo.tools.misc import get_vec_normalize, load_from_checkpoint
 from ppo.algo.ppo import PPO
 from ppo.parts.model import MasterPolicy
 from ppo.parts.storage import RolloutStorage
+from ppo.tools.envs_dask import DaskEnv
+
 import ppo.tools.stats as stats
-import ppo.tools.gifs as gifs
+import ppo.tools.misc as misc
 
 
 def create_envs(args, device):
     # args.render = False
-    envs = make_vec_envs(
-        args.env_name, args.seed, args.num_processes, args.gamma,
-        args.add_timestep, device, False, env_config=args)
+    # envs = make_vec_envs(
+    #     args.env_name, args.seed, args.num_processes, args.gamma,
+    #     args.add_timestep, device, False, env_config=args)
+    envs = DaskEnv(args)
     return envs
-
-
-def create_render_env(args, device):
-    args.render = True
-    from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
-    env_render_train = SubprocVecEnv([
-        make_env(args.env_name, args.seed, 0, args.add_timestep, False, args)])
-    args_eval = copy.deepcopy(args)
-    # make the evaluation horizon longer (if eval_max_length_factor > 1)
-    args_eval.max_length = int(args.max_length * args.eval_max_length_factor)
-    env_render_eval = SubprocVecEnv([
-        make_env(args.env_name, args.seed + args.num_processes, 0, args.add_timestep, False, args_eval)])
-    return env_render_train, env_render_eval
 
 
 def create_policy(args, envs, device, action_space, logdir):
@@ -55,7 +46,7 @@ def create_agent(args, policy):
 
 
 def init_rollout_storage(
-        args, envs_train, env_render_train, policy, action_space, action_space_skills, device):
+        args, envs_train, policy, action_space, action_space_skills, device):
     rollouts = RolloutStorage(
         args.num_master_steps_per_update,
         args.num_processes,
@@ -65,9 +56,7 @@ def init_rollout_storage(
         action_memory=args.action_memory)
 
     obs = envs_train.reset()
-    if env_render_train:
-        env_render_train.reset()
-    rollouts.obs[0].copy_(obs)
+    rollouts.obs[0].copy_(misc.dict_to_tensor(obs)[0])
     rollouts.to(device)
     return rollouts, obs
 
@@ -93,7 +82,7 @@ def make_frozen_skills_check(
     assert (skills_after_upd == skills_check).all()
 
 
-def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_render=None):
+def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
     args = copy.deepcopy(args_train)
     args.render = False
     # make the evaluation horizon longer (if eval_max_length_factor > 1)
@@ -114,17 +103,11 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
         vec_norm.ob_rms = ob_rms
 
     obs = envs_eval.reset()
-    if env_render:
-        env_render.reset()
     recurrent_hidden_states = torch.zeros(
         num_processes, policy.recurrent_hidden_state_size, device=device)
     masks = torch.zeros(num_processes, 1, device=device)
     stats_global, stats_local = stats.init(num_processes, eval=True)
 
-    if args.save_gifs:
-        gifs_global, gifs_local = gifs.init(num_processes)
-    else:
-        gifs_global = None
 
     need_master_action, prev_policy_outputs = np.ones((num_processes,)), None
     reward = 0
@@ -138,7 +121,8 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
             if last_actions is None:
                 last_actions_local = None
             else:
-                last_actions_local = last_actions[np.where(need_master_action)]
+                # TODO: check the [0] here
+                last_actions_local = last_actions[np.where(need_master_action)[0]]
             value_unused, action, action_log_prob_unused, recurrent_hidden_states = get_policy_values(
                 policy,
                 (obs, last_actions_local, recurrent_hidden_states, masks),
@@ -149,8 +133,6 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
         master_step_output = do_master_step(
             action, obs, reward, policy, envs_eval,
             hrlbc_setup=args.hrlbc_setup,
-            env_render=env_render,
-            return_observations=args.save_gifs,
             evaluation=True)
         obs, reward, done, infos, need_master_action = master_step_output[:5]
         if last_actions is not None:
@@ -160,17 +142,12 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval, env_re
             for env_idx, done_ in enumerate(done):
                 if done_:
                     last_actions[env_idx] = -1.
-        if args.save_gifs:
-            # saving gifs only works for the BCRL setup
-            gifs_global, gifs_local = gifs.update(
-                gifs_global, gifs_local, action, done, stats_local['done_before'],
-                master_step_output[-1])
 
         stats_global, stats_local = stats.update(
             stats_global, stats_local, reward, done, infos, need_master_action,
             args, overwrite_terminated=False)
         masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
-    return envs_eval, stats_global, gifs_global
+    return envs_eval, stats_global
 
 
 def get_policy_values(
@@ -196,7 +173,8 @@ def get_policy_values(
             # only several environments require a master action
             # update only the values of those
             value, action, log_prob, recurrent_states = prev_policy_outputs
-            indices = np.where(need_master_action)
+            # TODO: check the [0] here
+            indices = np.where(need_master_action)[0]
             value[indices], action[indices], log_prob[indices], recurrent_states[indices] = policy.act(
                 obs[indices], last_actions, recurrent_states_input[indices],
                 masks[indices], deterministic)
@@ -204,71 +182,47 @@ def get_policy_values(
 
 
 def do_master_step(
-        master_action, master_obs, master_reward, policy, envs,
-        hrlbc_setup=False, env_render=None, return_observations=False, evaluation=False):
+        master_action, master_obs_tensor, master_reward, policy, envs,
+        hrlbc_setup=False, evaluation=False):
     # print('master action = {}'.format(master_action[:, 0]))
-    skill_obs = master_obs
-    if return_observations:
-        envs_history = {'observations': [[] for _ in range(master_action.shape[0])],
-                        'skill_actions': [[] for _ in range(master_action.shape[0])]}
-    master_infos = np.array([None] * master_action.shape[0])
+    skill_obs_dict, env_idxs = misc.tensor_to_dict(master_obs_tensor)
+    num_envs = master_action.shape[0]
+    master_infos, master_dones = np.array([None] * num_envs), np.array([False] * num_envs)
     while True:
         if hrlbc_setup:
             # get the skill action
             with torch.no_grad():
-                skill_action = policy.get_worker_action(master_action, skill_obs)
-                skill_action = torch.cat([skill_action, master_action.float()], dim=1)
+                skill_action_dict, env_idxs = policy.get_worker_action(master_action, skill_obs_dict)
+                # TODO: put it back
+                # skill_action = torch.cat([skill_action, master_action.float()], dim=1)
         else:
             # it is not really a skill action, but we use this name to simplify the code
-            skill_action = master_action
-        skill_obs, reward, done, infos = envs.step(skill_action)
-        if env_render is not None:
-            env_render.step(skill_action[:1].cpu().numpy())
-        if return_observations:
-            # TODO: rewrite in the numpy style
-            for env_id, env_is_done in enumerate(done):
-                # we do not want to record gifs after resets
-                if not env_is_done:
-                    envs_history['observations'][env_id].append(skill_obs[env_id].cpu().numpy())
-                    envs_history['skill_actions'][env_id].append(skill_action[env_id].cpu().numpy())
-                    # skill_actions_envs_list.append(skill_action.cpu().numpy())
-        need_master_action = np.array([info['need_master_action'] for info in infos])
-        need_master_action[np.where(done)] = True
-        master_reward += reward
-        master_infos[np.where(need_master_action)] = np.array(infos)[np.where(need_master_action)]
+            skill_action_dict, env_idxs = misc.tensor_to_dict(master_action, env_idxs)
+        skill_obs_dict, reward_dict, done_dict, infos_dict = envs.step(skill_action_dict)
+        # TODO: move to a separate function
+        need_master_action = np.zeros((num_envs,))
+        for env_idx in skill_obs_dict.keys():
+            if infos_dict[env_idx]['need_master_action']:
+                need_master_action[env_idx] = 1
+            if done_dict[env_idx]:
+                need_master_action[env_idx] = 1
+                master_dones[env_idx] = True
+            if need_master_action[env_idx]:
+                master_infos[env_idx] = infos_dict[env_idx]
+            master_reward[env_idx] += reward_dict[env_idx]
         if np.any(need_master_action):
             break
-    return_tuple = [skill_obs, master_reward, done, master_infos, need_master_action]
-    if return_observations:
-        return_tuple += [envs_history]
-    return return_tuple
+    return (skill_obs_dict, master_reward, master_dones, master_infos, need_master_action)
 
 
-def perform_actions(action_sequence, observation, policy, envs, env_render, args):
+def perform_actions(action_sequence, observation, policy, envs, args):
     # observation = envs.reset()
-    # if env_render:
-    #     env_render.reset()
-    if args.save_gifs:
-        gifs_global, gifs_local = gifs.init(args.num_processes)
-        done_before = np.array([False] * args.num_processes, dtype=np.bool)
-    else:
-        gifs_global = None
     reward = 0
     for action in action_sequence:
         master_action_numpy = [[action] for _ in range(observation.shape[0])]
         master_action = torch.Tensor(master_action_numpy).int()
-        observation, reward, done, _, need_master_action, observation_history = do_master_step(
+        observation, reward, done, _, need_master_action = do_master_step(
             master_action, observation, reward, policy, envs,
-            args.hrlbc_setup,
-            env_render=env_render,
-            return_observations=True)
-        # TODO: change the gifs writing. so far works only when envs are done after the actions
-        if args.save_gifs:
-            gifs_global, gifs_local = gifs.update(
-                gifs_global, gifs_local, torch.tensor(master_action_numpy), done, done_before,
-                observation_history)
-            done_before = np.logical_or(done, done_before)
+            args.hrlbc_setup)
         print('reward = {}'.format(reward[:, 0]))
-    if args.save_gifs:
-        gifs.save(os.path.join(args.logdir, args.timestamp), gifs_global, epoch=-1)
 

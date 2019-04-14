@@ -28,7 +28,6 @@ class MiMEEnv(object):
         else:
             print('WARNING: the scene does not have set_rl_mode function')
         self.num_skills = vars(config).get('num_skills', 4)
-        self.timescale = vars(config).get('timescale', 25)
         self._render = vars(config).get('render', False) and id == 0
         self._id = id
         self.hrlbc_setup = vars(config).get('hrlbc_setup', False)
@@ -222,6 +221,8 @@ class MiMEEnv(object):
 
     def step(self, action):
         action_applied = self._get_action_applied(action)
+        # action_applied = {'linear_velocity': action[:3],
+        #                   'angular_velocity': action[3:6]}
         obs, reward, done, info = self.env.step(action_applied)
         observation = self._process_obs(obs)
         if len(info['failure_message']):

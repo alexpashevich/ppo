@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from ppo.parts.distributions import Categorical, DiagGaussian
-from ppo.tools.misc import init, init_normc_
+import ppo.tools.misc as misc
 
 from bc.net.architectures import resnet
 
@@ -35,7 +35,6 @@ class Policy(nn.Module):
             self.dist = DiagGaussian(self.base.output_size, num_outputs)
         else:
             raise NotImplementedError
-
 
     @property
     def is_recurrent(self):
@@ -81,9 +80,11 @@ class MasterPolicy(Policy):
     def __init__(self, obs_shape, action_space, base_kwargs=None):
         super(MasterPolicy, self).__init__(obs_shape, action_space, base_kwargs)
 
-    def get_worker_action(self, master_action, observation):
-        worker_action = self.base(observation, None, None, None, master_action=master_action)
-        return worker_action
+    def get_worker_action(self, master_action, obs_dict):
+        obs_tensor, env_idxs = misc.dict_to_tensor(obs_dict)
+        action_tensor = self.base(obs_tensor, None, None, None, master_action=master_action)
+        action_dict, env_idxs = misc.tensor_to_dict(action_tensor, env_idxs)
+        return action_dict, env_idxs
 
 
 class NNBase(nn.Module):
@@ -154,8 +155,8 @@ class MLPBase(NNBase):
         if recurrent_policy:
             num_inputs = hidden_size
 
-        init_ = lambda m: init(m,
-            init_normc_,
+        init_ = lambda m: misc.init(m,
+            misc.init_normc_,
             lambda x: nn.init.constant_(x, 0))
 
         self.actor = nn.Sequential(
@@ -223,7 +224,7 @@ class ResnetBase(NNBase):
             dim_action=dim_skill_action*num_skill_action_pred,  # dim_action in ResNetBranch
             return_features=True)
 
-        init_ = lambda m: init(m,
+        init_ = lambda m: misc.init(m,
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0))
 
@@ -241,7 +242,7 @@ class ResnetBase(NNBase):
             nn.Tanh()
         )
 
-        init_ = lambda m: init(m,
+        init_ = lambda m: misc.init(m,
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0))
 

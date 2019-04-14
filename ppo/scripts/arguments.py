@@ -18,6 +18,8 @@ def get_args():
                         help='whether to stop the execution for manual commands')
     parser.add_argument('--num-processes', type=int, default=16,
                         help='how many training CPU processes to use (default: 16)')
+    parser.add_argument('--dask-batch-size', type=int, default=8,
+                        help='the envs will be stepped using the batch size (default: 8)')
     parser.add_argument('--num-frames', type=int, default=30e7,
                         help='number of frames to train (default: 10e6)')
     parser.add_argument('--max-length', type=int, default=None,
@@ -72,7 +74,7 @@ def get_args():
                         help='number of skills')
     parser.add_argument('--no-skip-unused-obs', action='store_true', default=False,
                         help='whether to render the observations not used by master (scripted setup)')
-    # BC skills settings (should match the BC checkpoint)
+    # BC skills settings (should match the BC checkpoint) # TODO: make them to be read from info.json
     parser.add_argument('--checkpoint-path', type=str, default=None,
                         help='if specified, load the networks weights from the file')
     parser.add_argument('--archi', type=str, default='resnet18_featbranch',
@@ -83,6 +85,8 @@ def get_args():
                         help='number of future actions predicted')
     parser.add_argument('--cnn-output-features', type=int, default=512,
                         help='the number of resnet features')
+    parser.add_argument('--robot-action-space', type=str, default='tool',
+                        help='the mime action space: can be tool or joints')
     # evaluation
     parser.add_argument('--num-eval-episodes', type=int, default=8,
                         help='number of episodes to use in evaluation')
@@ -102,8 +106,6 @@ def get_args():
                         help='log interval, one log per n updates (default: 10)')
     parser.add_argument('--save-interval', type=int, default=2,
                         help='save interval, one save per n updates (default: 100)')
-    parser.add_argument('--save-gifs', action='store_true', default=False,
-                        help='whether to save the gifs of the evaluation environments')
     # pure PPO baseline
     parser.add_argument('--use-direct-actions', action='store_true', default=False,
                         help='whether to directly use RL to command the agent (no master)')

@@ -123,3 +123,30 @@ def load_ob_rms(ob_rms, envs):
             get_vec_normalize(envs).ob_rms = ob_rms
         except:
             print('WARNING: did not manage to reuse the normalization statistics')
+
+
+def dict_to_tensor(dictionary):
+    ''' Function to make a tensor out of a dictionary where the keys are env_idxs '''
+    tensor_list = []
+    for key in sorted(dictionary.keys()):
+        tensor_list.append(dictionary[key])
+    return torch.stack(tensor_list), sorted(dictionary.keys())
+
+
+def tensor_to_dict(tensor, keys=None):
+    ''' Function to make a dictionary out of a tensor where the keys are env_idxs '''
+    if keys is None:
+        keys = range(tensor.shape[0])
+    dictionary = {}
+    for idx, key in enumerate(keys):
+        dictionary[key] = tensor[idx]
+    return dictionary, keys
+
+
+def pudb():
+    try:
+        from pudb.remote import set_trace
+        set_trace()
+    except:
+        pass
+
