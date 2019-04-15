@@ -79,10 +79,10 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
     # make the evaluation horizon longer (if eval_max_length_factor > 1)
     args.max_length = int(args.max_length * args.eval_max_length_factor)
     args.num_processes = args.num_eval_episodes
-    args.dask_batch_size = int(args.num_eval_processes / 2)
+    # args.dask_batch_size = int(args.num_eval_episodes / 2)
+    args.dask_batch_size = args.num_eval_episodes
     num_processes = args.num_eval_episodes
     args.seed += num_processes
-    import pudb; pudb.set_trace()
     if envs_eval is None:
         envs_eval = DaskEnv(args)
 
@@ -103,18 +103,18 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
     stats_global, stats_local = stats.init(num_processes, eval=True)
 
     need_master_action, prev_policy_outputs = np.ones((num_processes,)), None
-    reward = 0
+    reward = torch.zeros((num_processes, 1)).type_as(obs[0])
     if args.action_memory == 0:
         last_actions = None
     else:
-        last_actions = -torch.ones(num_processes, args.action_memory).type_as(obs)
+        last_actions = -torch.ones(num_processes, args.action_memory).type_as(obs[0])
     print('Evaluating...')
     while len(stats_global['return']) < args.num_eval_episodes:
+        obs = misc.dict_to_tensor(obs)[0]
         with torch.no_grad():
             if last_actions is None:
                 last_actions_local = None
             else:
-                # TODO: check the [0] here
                 last_actions_local = last_actions[np.where(need_master_action)]
             value_unused, action, action_log_prob_unused, recurrent_hidden_states = get_policy_values(
                 policy,
@@ -123,11 +123,8 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
             prev_policy_outputs = value_unused, action, action_log_prob_unused, recurrent_hidden_states
 
         # Observe reward and next obs
-        master_step_output = do_master_step(
-            action, obs, reward, policy, envs_eval,
-            hrlbc_setup=args.hrlbc_setup,
-            evaluation=True)
-        obs, reward, done, infos, need_master_action = master_step_output[:5]
+        obs, reward, done, infos, need_master_action = do_master_step(
+            action, obs, reward, policy, envs_eval, hrlbc_setup=args.hrlbc_setup)
         if last_actions is not None:
             for env_idx in np.where(need_master_action)[0]:
                 last_actions[env_idx, :-1] = last_actions[env_idx, 1:]
@@ -137,8 +134,7 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
                     last_actions[env_idx] = -1.
 
         stats_global, stats_local = stats.update(
-            stats_global, stats_local, reward, done, infos, need_master_action,
-            args, overwrite_terminated=False)
+            stats_global, stats_local, reward, done, infos, args, overwrite_terminated=False)
         masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
     return envs_eval, stats_global
 
@@ -165,6 +161,7 @@ def get_policy_values(
         else:
             # only several environments require a master action
             # update only the values of those
+            import pudb; pudb.set_trace()
             value, action, log_prob, recurrent_states = prev_policy_outputs
             # TODO: check the [0] here
             indices = np.where(need_master_action)[0]
@@ -175,8 +172,7 @@ def get_policy_values(
 
 
 def do_master_step(
-        master_action, master_obs_tensor, master_reward, policy, envs,
-        hrlbc_setup=False, evaluation=False):
+        master_action, master_obs_tensor, master_reward, policy, envs, hrlbc_setup=False):
     # print('master action = {}'.format(master_action[:, 0]))
     skill_obs_dict, env_idxs = misc.tensor_to_dict(master_obs_tensor)
     num_envs = master_action.shape[0]

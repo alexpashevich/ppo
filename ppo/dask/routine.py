@@ -21,6 +21,9 @@ class AsynchMimeEnv:
         self.frames_stack = deque(maxlen=args['num_frames_stacked'])
         self.reset_vars()
 
+        # clean the dask pipes
+        self.pub_out.put(None)
+
         # start the environment loop
         self.env_loop()
 
@@ -58,17 +61,19 @@ class AsynchMimeEnv:
             self.step_counter_after_new_action += 1
 
             if input_['function'] == 'reset':
-                obs = self.env.reset()
-                self.reset_vars()
+                obs = self.reset_env()
                 self.publish_obs(obs_dict={'observation': obs})
             elif input_['function'] == 'step':
+                print('env {} step, counter after action = {}, counter = {}'.format(
+                    self.env_idx, self.step_counter_after_new_action, self.step_counter))
                 action_applied = self.get_action_applied(input_['action'])
                 obs, reward, done, info = self.env.step(action_applied)
                 info = self.update_info(info)
                 self.publish_obs(
                     obs_dict={'observation': obs, 'reward': reward, 'done': done, 'info': info})
                 if done:
-                    self.reset_vars()
+                    # TODO: what to do with this guy???
+                    obs = self.reset_env()
             else:
                 raise NotImplementedError('function {} is not implemented'.format(
                     input_['function']))
@@ -87,11 +92,13 @@ class AsynchMimeEnv:
         return env
 
     def reset_vars(self):
+        print('env {} reset vars'.format(self.env_idx))
         self.step_counter = 0
         self.step_counter_after_new_action = 0
         self.frames_stack.clear()
         self.prev_script = None
         self.need_master_action = True
+        return self.env.reset()
 
     def update_info(self, info):
         if len(info['failure_message']):

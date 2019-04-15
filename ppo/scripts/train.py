@@ -62,6 +62,8 @@ def main():
 
     stats_global, stats_local = stats.init(args.num_processes)
     start = time.time()
+    # TODO: check the reset
+    # TODO: check the dask_batch < num_processes
 
     if hasattr(policy.base, 'resnet'):
         assert_tensors = utils.init_frozen_skills_check(obs, policy)
@@ -129,7 +131,6 @@ def main():
         if args.render or (len(stats_global['length']) > 0 and is_eval_time):
             log.save_model(
                 logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args, eval=True)
-            import pudb; pudb.set_trace()
             if not args.eval_offline:
                 envs_eval, stats_eval = utils.evaluate(
                     policy, args, device, envs_train, envs_eval)

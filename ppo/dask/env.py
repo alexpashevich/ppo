@@ -47,6 +47,13 @@ class DaskEnv:
         self.pub_out = pub_out
         self.sub_in = sub_in
 
+        # clean the dask pipes
+        counter = 0
+        for none in self.sub_in:
+            counter += 1
+            if counter == self.num_processes:
+                break
+
     def step(self, actions):
         for env_idx, action_dict in actions.items():
             for action_key, action_value in action_dict.items():
