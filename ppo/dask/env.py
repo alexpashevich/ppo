@@ -1,0 +1,111 @@
+import torch
+import mime
+import numpy as np
+
+from dask.distributed import Client, LocalCluster, Pub, Sub
+from gym.spaces import Box, Discrete
+from collections import OrderedDict, deque
+
+from bc.dataset import Actions
+from ppo.tools import misc
+from ppo.dask.routine import AsynchMimeEnv
+
+SUPPORTED_MIME_ENVS = 'Bowl', 'Salad', 'SimplePour', 'SimplePourNoDrops'
+
+
+class DaskEnv:
+    def __init__(self, config):
+        assert any([env_prefix in config.env_name for env_prefix in SUPPORTED_MIME_ENVS])
+        self._read_config(config)
+        self._init_dask(config)
+        print('Created DaskEnv with {} processes and batch size of {}'.format(
+            self.num_processes, self.batch_size))
+
+    def _read_config(self, config):
+        # parsing the environment part of the config
+        self.env_name = config.env_name
+        self.num_processes = config.num_processes
+        self.batch_size = config.dask_batch_size
+        assert self.batch_size <= self.num_processes
+        self.device = config.device
+        self.observation_type = config.input_type
+        self.num_frames_stacked = config.num_frames_stacked
+        self.compress_frames = config.compress_frames  # TODO: implement it
+
+    def _init_dask(self, config):
+        cluster = LocalCluster(n_workers=self.num_processes)
+        client = Client(cluster)
+        # always define publishers first then subscribers
+        pub_out = [Pub('env{}_input'.format(env_idx)) for env_idx in range(self.num_processes)]
+        env_args = []
+        for env_idx in range(self.num_processes):
+            env_config = dict(env_idx=env_idx)
+            env_config.update(vars(config))
+            env_args.append(env_config)
+        _ = client.map(AsynchMimeEnv, env_args)
+        sub_in = Sub('observations')
+        self.pub_out = pub_out
+        self.sub_in = sub_in
+
+    def step(self, actions):
+        for env_idx, action_dict in actions.items():
+            for action_key, action_value in action_dict.items():
+                if isinstance(action_value, torch.Tensor):
+                    action_dict[action_key] = action_value.cpu().numpy()
+            self.pub_out[env_idx].put({'function': 'step',
+                                       'action': action_dict})
+        return self.get_obs_batch(self.batch_size)
+
+    def get_obs_batch(self, batch_size):
+        obs_dict, reward_dict, done_dict, info_dict = {}, {}, {}, {}
+        count_envs = 0
+        for env_dict, env_idx in self.sub_in:
+            obs_dict[env_idx] = env_dict['observation'].to(torch.device(self.device))
+            reward_dict[env_idx] = env_dict['reward']
+            done_dict[env_idx] = env_dict['done']
+            info_dict[env_idx] = env_dict['info']
+            count_envs += 1
+            if count_envs == batch_size:
+                break
+        return obs_dict, reward_dict, done_dict, info_dict
+
+    def reset(self):
+        count_envs = 0
+        for env_idx in range(self.num_processes):
+            self.pub_out[env_idx].put({'function': 'reset'})
+        obs_dict = {}
+        for env_dict, env_idx in self.sub_in:
+            obs_dict[env_idx] = env_dict['observation'].to(torch.device(self.device))
+            count_envs += 1
+            if count_envs == self.num_processes:
+                break
+        return obs_dict
+
+    @property
+    def observation_space(self):
+        if 'Cam' in self.env_name:
+            if self.observation_type == 'depth':
+                observation_dim = 1 * self.num_frames_stacked
+            elif self.observation_type == 'rgbd':
+                observation_dim = 4 * self.num_frames_stacked
+            else:
+                raise NotImplementedError
+            return Box(-np.inf, np.inf, (observation_dim, 224, 224), dtype=np.float)
+        elif 'Bowl' in self.env_name:
+            return Box(-np.inf, np.inf, (19,), dtype=np.float)
+        elif 'Salad' in self.env_name:
+            # num_cups = self.env.unwrapped.scene._num_cups
+            # num_drops = self.env.unwrapped.scene._num_drops
+            num_cups = 2
+            num_drops = 2
+            num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
+            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
+        elif 'SimplePour' in self.env_name:
+            if 'NoDrops' in self.env_name:
+                num_drops = 0
+            else:
+                num_drops = 5
+            num_features = 16 + 3 * num_drops
+            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
+        else:
+            raise NotImplementedError

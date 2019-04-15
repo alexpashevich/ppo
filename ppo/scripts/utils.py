@@ -13,19 +13,10 @@ from ppo.tools.misc import get_vec_normalize, load_from_checkpoint
 from ppo.algo.ppo import PPO
 from ppo.parts.model import MasterPolicy
 from ppo.parts.storage import RolloutStorage
-from ppo.tools.envs_dask import DaskEnv
+from ppo.dask.env import DaskEnv
 
 import ppo.tools.stats as stats
 import ppo.tools.misc as misc
-
-
-def create_envs(args, device):
-    # args.render = False
-    # envs = make_vec_envs(
-    #     args.env_name, args.seed, args.num_processes, args.gamma,
-    #     args.add_timestep, device, False, env_config=args)
-    envs = DaskEnv(args)
-    return envs
 
 
 def create_policy(args, envs, device, action_space, logdir):
@@ -64,7 +55,7 @@ def init_rollout_storage(
 def init_frozen_skills_check(obs, policy):
     # GT to check whether the skills stay unchanged
     with torch.no_grad():
-        test_tensor = obs.clone()
+        test_tensor = misc.dict_to_tensor(obs)[0]
         test_master = np.random.randint(0, policy.base.num_skills, len(obs))
         policy.base.resnet.eval()
         features_check = policy.base.resnet(test_tensor)
@@ -87,27 +78,29 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
     args.render = False
     # make the evaluation horizon longer (if eval_max_length_factor > 1)
     args.max_length = int(args.max_length * args.eval_max_length_factor)
+    args.num_processes = args.num_eval_episodes
+    args.dask_batch_size = int(args.num_eval_processes / 2)
     num_processes = args.num_eval_episodes
+    args.seed += num_processes
+    import pudb; pudb.set_trace()
     if envs_eval is None:
-        envs_eval = make_vec_envs(
-            args.env_name, args.seed + num_processes, num_processes,
-            args.gamma, args.add_timestep, device, True, env_config=args)
+        envs_eval = DaskEnv(args)
 
-    vec_norm = get_vec_normalize(envs_eval)
-    if vec_norm is not None:
-        vec_norm.eval()
-        if 'RunningMeanStd' in str(type(train_envs_or_ob_rms)):
-            ob_rms = train_envs_or_ob_rms
-        else:
-            ob_rms = get_vec_normalize(train_envs_or_ob_rms).ob_rms
-        vec_norm.ob_rms = ob_rms
+    # TODO: implement the full state normalization
+    # vec_norm = get_vec_normalize(envs_eval)
+    # if vec_norm is not None:
+    #     vec_norm.eval()
+    #     if 'RunningMeanStd' in str(type(train_envs_or_ob_rms)):
+    #         ob_rms = train_envs_or_ob_rms
+    #     else:
+    #         ob_rms = get_vec_normalize(train_envs_or_ob_rms).ob_rms
+    #     vec_norm.ob_rms = ob_rms
 
     obs = envs_eval.reset()
     recurrent_hidden_states = torch.zeros(
         num_processes, policy.recurrent_hidden_state_size, device=device)
     masks = torch.zeros(num_processes, 1, device=device)
     stats_global, stats_local = stats.init(num_processes, eval=True)
-
 
     need_master_action, prev_policy_outputs = np.ones((num_processes,)), None
     reward = 0
@@ -122,7 +115,7 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
                 last_actions_local = None
             else:
                 # TODO: check the [0] here
-                last_actions_local = last_actions[np.where(need_master_action)[0]]
+                last_actions_local = last_actions[np.where(need_master_action)]
             value_unused, action, action_log_prob_unused, recurrent_hidden_states = get_policy_values(
                 policy,
                 (obs, last_actions_local, recurrent_hidden_states, masks),
@@ -193,8 +186,6 @@ def do_master_step(
             # get the skill action
             with torch.no_grad():
                 skill_action_dict, env_idxs = policy.get_worker_action(master_action, skill_obs_dict)
-                # TODO: put it back
-                # skill_action = torch.cat([skill_action, master_action.float()], dim=1)
         else:
             # it is not really a skill action, but we use this name to simplify the code
             skill_action_dict, env_idxs = misc.tensor_to_dict(master_action, env_idxs)

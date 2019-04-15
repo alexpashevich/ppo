@@ -5,6 +5,7 @@ from ppo.parts.distributions import Categorical, DiagGaussian
 import ppo.tools.misc as misc
 
 from bc.net.architectures import resnet
+from bc.dataset import Actions
 
 
 class Flatten(nn.Module):
@@ -78,13 +79,23 @@ class Policy(nn.Module):
 
 class MasterPolicy(Policy):
     def __init__(self, obs_shape, action_space, base_kwargs=None):
+        # I use -1 because I count the griper as 2 vals
+        self.action_keys = Actions.action_space_to_keys(
+            base_kwargs['robot_action_space'], base_kwargs['dim_skill_action'] - 1)
+        # TODO: implement statistics
+        self.statistics = None
         super(MasterPolicy, self).__init__(obs_shape, action_space, base_kwargs)
 
     def get_worker_action(self, master_action, obs_dict):
         obs_tensor, env_idxs = misc.dict_to_tensor(obs_dict)
         action_tensor = self.base(obs_tensor, None, None, None, master_action=master_action)
-        action_dict, env_idxs = misc.tensor_to_dict(action_tensor, env_idxs)
-        return action_dict, env_idxs
+        action_tensors_dict, env_idxs = misc.tensor_to_dict(action_tensor, env_idxs)
+        action_dicts_dict = {}
+        for env_idx, action_tensor in action_tensors_dict.items():
+            action_dict = Actions.tensor_to_dict(action_tensor, self.action_keys, self.statistics)
+            action_dict['skill'] = master_action[env_idx]
+            action_dicts_dict[env_idx] = action_dict
+        return action_dicts_dict, env_idxs
 
 
 class NNBase(nn.Module):

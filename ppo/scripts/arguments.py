@@ -83,6 +83,8 @@ def get_args():
                         help='dimensionality of a skill action')
     parser.add_argument('--num-skill-action-pred', type=int, default=4,
                         help='number of future actions predicted')
+    parser.add_argument('--num-frames-stacked', type=int, default=3,
+                        help='number of frames that the network receives as the input')
     parser.add_argument('--cnn-output-features', type=int, default=512,
                         help='the number of resnet features')
     parser.add_argument('--robot-action-space', type=str, default='tool',

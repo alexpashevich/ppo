@@ -10,11 +10,10 @@ import ppo.tools.log as log
 import ppo.tools.stats as stats
 import ppo.scripts.utils as utils
 from ppo.scripts.arguments import get_args
+from ppo.dask.env import DaskEnv
 
 
 def init_training(args, logdir):
-    render_cached = args.render  # TODO: do we still need it?
-
     # get the device before loading to enable the GPU/CPU transfer
     device = bc_misc.get_device(args.device)
     print('Running the experiments on {}'.format(device))
@@ -27,8 +26,7 @@ def init_training(args, logdir):
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 
     # create the parallel envs
-    envs_train, envs_eval = utils.create_envs(args, device), None
-    args.render = render_cached
+    envs_train, envs_eval = DaskEnv(args), None
 
     # create the policy
     action_space = Discrete(args.num_skills)
@@ -66,8 +64,7 @@ def main():
     start = time.time()
 
     if hasattr(policy.base, 'resnet'):
-        pass  # TODO: fix
-    #     assert_tensors = utils.init_frozen_skills_check(obs, policy)
+        assert_tensors = utils.init_frozen_skills_check(obs, policy)
 
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
@@ -118,8 +115,7 @@ def main():
         rollouts.after_update()
 
         if hasattr(policy.base, 'resnet'):
-            pass  # TODO: fix
-            # utils.make_frozen_skills_check(policy, *assert_tensors)
+            utils.make_frozen_skills_check(policy, *assert_tensors)
 
         if epoch % args.save_interval == 0:
             log.save_model(
@@ -133,6 +129,7 @@ def main():
         if args.render or (len(stats_global['length']) > 0 and is_eval_time):
             log.save_model(
                 logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args, eval=True)
+            import pudb; pudb.set_trace()
             if not args.eval_offline:
                 envs_eval, stats_eval = utils.evaluate(
                     policy, args, device, envs_train, envs_eval)

@@ -149,9 +149,6 @@ class RolloutStorage(object):
 
             timesteps, env_idxs = indices
             last_actions_batch = self._get_last_actions(timesteps, env_idxs)
-            # TODO: remove after debug
-            # next_last_action = self._get_last_actions(timesteps + 1, env_idxs)
-            # assert all(next_last_action[:, -1:] == actions_batch.type_as(next_last_action))
             yield obs_batch, last_actions_batch, recurrent_hidden_states_batch, actions_batch, \
                 value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ
 
