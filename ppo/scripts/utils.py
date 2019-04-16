@@ -72,7 +72,7 @@ def make_frozen_skills_check(
     assert (skills_after_upd == skills_check).all()
 
 
-def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
+def evaluate(policy, args_train, device, envs_train, envs_eval):
     args = copy.deepcopy(args_train)
     args.render = False
     # make the evaluation horizon longer (if eval_max_length_factor > 1)
@@ -83,16 +83,7 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
     args.seed += num_processes
     if envs_eval is None:
         envs_eval = DaskEnv(args)
-
-    # TODO: implement the full state normalization
-    # vec_norm = get_vec_normalize(envs_eval)
-    # if vec_norm is not None:
-    #     vec_norm.eval()
-    #     if 'RunningMeanStd' in str(type(train_envs_or_ob_rms)):
-    #         ob_rms = train_envs_or_ob_rms
-    #     else:
-    #         ob_rms = get_vec_normalize(train_envs_or_ob_rms).ob_rms
-    #     vec_norm.ob_rms = ob_rms
+        envs_eval.obs_running_stats = envs_train.obs_running_stats
 
     obs = envs_eval.reset()
     recurrent_hidden_states = {env_idx: torch.zeros(policy.recurrent_hidden_state_size, device=device)

@@ -3,6 +3,7 @@ import mime
 import numpy as np
 
 from dask.distributed import Client, LocalCluster, Pub, Sub
+from baselines.common.running_mean_std import RunningMeanStd
 from gym.spaces import Box, Discrete
 from collections import OrderedDict, deque
 
@@ -20,6 +21,10 @@ class DaskEnv:
         self._read_config(config)
         self._init_dask(config)
         self.action_sent_flags = np.zeros(self.num_processes)
+        if 'Cam' not in self.env_name:
+            self.obs_running_stats = RunningMeanStd(shape=self.observation_space.shape)
+        else:
+            self.obs_running_stats = None
         print('Created DaskEnv with {} processes and batch size of {}'.format(
             self.num_processes, self.batch_size))
 
@@ -81,7 +86,7 @@ class DaskEnv:
             count_envs += 1
             if count_envs == batch_size:
                 break
-        return obs_dict, reward_dict, done_dict, info_dict
+        return self.normalize_obs(obs_dict), reward_dict, done_dict, info_dict
 
     def reset(self):
         count_envs = 0
@@ -94,6 +99,21 @@ class DaskEnv:
             count_envs += 1
             if count_envs == self.num_processes:
                 break
+        return self.normalize_obs(obs_dict)
+
+    def normalize_obs(self, obs_dict):
+        if self.obs_running_stats:
+            obs_numpy_list = []
+            for env_idx, obs in sorted(obs_dict.items()):
+                obs_numpy_list.append(obs.cpu().numpy())
+            self.obs_running_stats.update(np.stack(obs_numpy_list))
+            clipob = 10.
+            epsilon = 1e-8
+            obs_mean = torch.tensor(self.obs_running_stats.mean).type_as(obs)
+            obs_var = torch.tensor(self.obs_running_stats.var).type_as(obs)
+            for env_idx, obs in sorted(obs_dict.items()):
+                obs = torch.clamp((obs - obs_mean) / torch.sqrt(obs_var + epsilon), -clipob, clipob)
+                obs_dict[env_idx] = obs
         return obs_dict
 
     @property

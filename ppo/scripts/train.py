@@ -43,7 +43,7 @@ def init_training(args, logdir):
 
     if loaded_dict:
         # load normalization and optimizer statistics
-        misc.load_ob_rms(loaded_dict['ob_rms'], envs_train)
+        envs_train.obs_running_stats = loaded_dict['obs_running_stats']
         misc.load_optimizer(agent.optimizer, loaded_dict['optimizer_state_dict'], device)
 
     all_envs = envs_train, envs_eval

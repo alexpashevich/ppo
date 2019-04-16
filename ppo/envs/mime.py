@@ -11,7 +11,7 @@ from ppo.tools import misc
 
 
 class MimeEnv:
-    def __init__(self, args):
+    def __init__(self, args, obs_running_stats=None):
         self.parse_args(args)
 
         # create variables

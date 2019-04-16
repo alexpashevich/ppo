@@ -111,14 +111,6 @@ def load_optimizer(optimizer, optimizer_state_dict, device):
                 state[k] = getattr(v, target_device)()
 
 
-def load_ob_rms(ob_rms, envs):
-    if ob_rms:
-        try:
-            get_vec_normalize(envs).ob_rms = ob_rms
-        except:
-            print('WARNING: did not manage to reuse the normalization statistics')
-
-
 def dict_to_tensor(dictionary):
     ''' Function to make a tensor out of a dictionary where the keys are env_idxs '''
     if dictionary is None:
