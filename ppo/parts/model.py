@@ -82,13 +82,16 @@ class MasterPolicy(Policy):
         # I use -1 because I count the griper as 2 vals
         self.action_keys = Actions.action_space_to_keys(
             base_kwargs['robot_action_space'], base_kwargs['dim_skill_action'] - 1)
-        # TODO: implement statistics
         self.statistics = None
         super(MasterPolicy, self).__init__(obs_shape, action_space, base_kwargs)
 
     def get_worker_action(self, master_action, obs_dict):
         obs_tensor, env_idxs = misc.dict_to_tensor(obs_dict)
-        action_tensor = self.base(obs_tensor, None, None, None, master_action=master_action)
+        master_action_filtered = []
+        for env_idx in env_idxs:
+            master_action_filtered.append(master_action[env_idx])
+        master_action_filtered = torch.stack(master_action_filtered)
+        action_tensor = self.base(obs_tensor, None, None, None, master_action=master_action_filtered)
         action_tensors_dict, env_idxs = misc.tensor_to_dict(action_tensor, env_idxs)
         action_dicts_dict = {}
         for env_idx, action_tensor in action_tensors_dict.items():
@@ -293,6 +296,7 @@ class ResnetBase(NNBase):
             hidden_actor = self.actor(features.detach())
             return self.critic_linear(hidden_critic), hidden_actor, unused_rnn_hxs
         else:
+            # we want the skill actions
             # master_action: num_processes x 1
             skill_actions = []
             assert len(master_action) == len(features)

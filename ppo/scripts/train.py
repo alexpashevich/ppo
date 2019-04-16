@@ -57,13 +57,14 @@ def main():
         args, logdir)
     envs_train, envs_eval = all_envs
     action_space_skills = Box(-np.inf, np.inf, (args.dim_skill_action,), dtype=np.float)
+    import pudb; pudb.set_trace()
     rollouts, obs = utils.init_rollout_storage(
         args, envs_train, policy, action_space, action_space_skills, device)
 
     stats_global, stats_local = stats.init(args.num_processes)
     start = time.time()
-    # TODO: check the reset
-    # TODO: check the dask_batch < num_processes
+    # TODO: replace tensors by dictionaries everywhere in train.py and utils.py
+    # probably i just need to replace rollouts.get_last output by a dict
 
     if hasattr(policy.base, 'resnet'):
         assert_tensors = utils.init_frozen_skills_check(obs, policy)
@@ -128,7 +129,7 @@ def main():
                 env_steps, start, stats_global, action_loss, value_loss, dist_entropy)
 
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
-        if args.render or (len(stats_global['length']) > 0 and is_eval_time):
+        if len(stats_global['length']) > 0 and is_eval_time:
             log.save_model(
                 logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args, eval=True)
             if not args.eval_offline:

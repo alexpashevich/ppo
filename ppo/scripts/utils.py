@@ -22,7 +22,8 @@ import ppo.tools.misc as misc
 def create_policy(args, envs, device, action_space, logdir):
     policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
     if args.checkpoint_path:
-        load_from_checkpoint(policy, args.checkpoint_path, device)
+        import pudb; pudb.set_trace()
+        policy.statistics = load_from_checkpoint(policy, args.checkpoint_path, device)
         checkpoint_dir = os.path.dirname(args.checkpoint_path)
         if os.path.exists(os.path.join(checkpoint_dir, 'info.json')):
             copyfile(os.path.join(checkpoint_dir, 'info.json'), os.path.join(logdir, 'info.json'))
@@ -161,10 +162,8 @@ def get_policy_values(
         else:
             # only several environments require a master action
             # update only the values of those
-            import pudb; pudb.set_trace()
             value, action, log_prob, recurrent_states = prev_policy_outputs
-            # TODO: check the [0] here
-            indices = np.where(need_master_action)[0]
+            indices = np.where(need_master_action)
             value[indices], action[indices], log_prob[indices], recurrent_states[indices] = policy.act(
                 obs[indices], last_actions, recurrent_states_input[indices],
                 masks[indices], deterministic)
@@ -172,34 +171,45 @@ def get_policy_values(
 
 
 def do_master_step(
-        master_action, master_obs_tensor, master_reward, policy, envs, hrlbc_setup=False):
-    # print('master action = {}'.format(master_action[:, 0]))
-    skill_obs_dict, env_idxs = misc.tensor_to_dict(master_obs_tensor)
-    num_envs = master_action.shape[0]
-    master_infos, master_dones = np.array([None] * num_envs), np.array([False] * num_envs)
+        action_master, obs_tensor, reward_master, policy, envs, hrlbc_setup=False):
+    obs_dict, env_idxs = misc.tensor_to_dict(obs_tensor)
+    num_envs = action_master.shape[0]
+    info_master, done_master = np.array([None] * num_envs), np.array([False] * num_envs)
     while True:
         if hrlbc_setup:
             # get the skill action
             with torch.no_grad():
-                skill_action_dict, env_idxs = policy.get_worker_action(master_action, skill_obs_dict)
+                action_skill_dict, env_idxs = policy.get_worker_action(action_master, obs_dict)
         else:
             # it is not really a skill action, but we use this name to simplify the code
-            skill_action_dict, env_idxs = misc.tensor_to_dict(master_action, env_idxs)
-        skill_obs_dict, reward_dict, done_dict, infos_dict = envs.step(skill_action_dict)
-        # TODO: move to a separate function
-        need_master_action = np.zeros((num_envs,))
-        for env_idx in skill_obs_dict.keys():
-            if infos_dict[env_idx]['need_master_action']:
-                need_master_action[env_idx] = 1
-            if done_dict[env_idx]:
-                need_master_action[env_idx] = 1
-                master_dones[env_idx] = True
-            if need_master_action[env_idx]:
-                master_infos[env_idx] = infos_dict[env_idx]
-            master_reward[env_idx] += reward_dict[env_idx]
+            action_skill_dict, env_idxs = misc.tensor_to_dict(action_master, env_idxs)
+            for env_idx, env_action_master in action_skill_dict.items():
+                action_skill_dict[env_idx] = {'skill': env_action_master}
+        obs_dict, reward_envs, done_envs, info_envs = envs.step(action_skill_dict)
+        need_master_action = update_master_variables(
+            num_envs=num_envs,
+            env_idxs=obs_dict.keys(),
+            envs_dict={'reward': reward_envs, 'done': done_envs, 'info': info_envs},
+            master_dict={'reward': reward_master, 'done': done_master, 'info': info_master})
         if np.any(need_master_action):
             break
-    return (skill_obs_dict, master_reward, master_dones, master_infos, need_master_action)
+    return (obs_dict, reward_master, done_master, info_master, need_master_action)
+
+
+def update_master_variables(num_envs, env_idxs, envs_dict, master_dict):
+    '''' Returns a numpy array of 0/1 with indication which env needs a master action '''
+    # TODO: reuse it in eval
+    need_master_action = np.zeros((num_envs,))
+    for env_idx in env_idxs:
+        if envs_dict['info'][env_idx]['need_master_action']:
+            need_master_action[env_idx] = 1
+        if envs_dict['done'][env_idx]:
+            need_master_action[env_idx] = 1
+            master_dict['done'][env_idx] = True
+        if need_master_action[env_idx]:
+            master_dict['info'][env_idx] = envs_dict['info'][env_idx]
+        master_dict['reward'][env_idx] += envs_dict['reward'][env_idx]
+    return need_master_action
 
 
 def perform_actions(action_sequence, observation, policy, envs, args):

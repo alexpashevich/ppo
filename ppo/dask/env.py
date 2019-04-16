@@ -18,6 +18,7 @@ class DaskEnv:
         assert any([env_prefix in config.env_name for env_prefix in SUPPORTED_MIME_ENVS])
         self._read_config(config)
         self._init_dask(config)
+        self.action_sent_flags = np.zeros(self.num_processes)
         print('Created DaskEnv with {} processes and batch size of {}'.format(
             self.num_processes, self.batch_size))
 
@@ -56,6 +57,9 @@ class DaskEnv:
 
     def step(self, actions):
         for env_idx, action_dict in actions.items():
+            if self.action_sent_flags[env_idx] == 1:
+                continue
+            self.action_sent_flags[env_idx] = 1
             for action_key, action_value in action_dict.items():
                 if isinstance(action_value, torch.Tensor):
                     action_dict[action_key] = action_value.cpu().numpy()
@@ -67,6 +71,8 @@ class DaskEnv:
         obs_dict, reward_dict, done_dict, info_dict = {}, {}, {}, {}
         count_envs = 0
         for env_dict, env_idx in self.sub_in:
+            assert self.action_sent_flags[env_idx] == 1
+            self.action_sent_flags[env_idx] = 0
             obs_dict[env_idx] = env_dict['observation'].to(torch.device(self.device))
             reward_dict[env_idx] = env_dict['reward']
             done_dict[env_idx] = env_dict['done']
@@ -79,6 +85,7 @@ class DaskEnv:
     def reset(self):
         count_envs = 0
         for env_idx in range(self.num_processes):
+            assert self.action_sent_flags[env_idx] == 0
             self.pub_out[env_idx].put({'function': 'reset'})
         obs_dict = {}
         for env_dict, env_idx in self.sub_in:

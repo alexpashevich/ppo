@@ -88,10 +88,12 @@ def map_state_dict_key(key, num_skills):
 
 def load_from_checkpoint(policy, path, device):
     if device.type == 'cpu':
-        state_dict = torch.load(path, map_location=lambda storage, loc: storage)
+        loaded_dict = torch.load(path, map_location=lambda storage, loc: storage)
     else:
-        state_dict = torch.load(path)
-    state_dict = state_dict['net_state_dict']
+        loaded_dict = torch.load(path)
+    import pudb; pudb.set_trace()
+    model = loaded_dict['model']
+    state_dict = model.state_dict()
     state_dict_renamed = {}
     for key, value in state_dict.items():
         key_new = map_state_dict_key(key, policy.base.num_skills)
@@ -108,6 +110,7 @@ def load_from_checkpoint(policy, path, device):
             state_dict[key] = state_dict_renamed[key]
     policy.load_state_dict(state_dict, strict=False)
     print('loaded the BC checkpoint from {}'.format(path))
+    return loaded_dict['statistics']
 
 def load_optimizer(optimizer, optimizer_state_dict, device):
     optimizer.load_state_dict(optimizer_state_dict)

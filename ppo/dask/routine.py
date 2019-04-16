@@ -19,7 +19,8 @@ class AsynchMimeEnv:
         self.pub_out = Pub('observations')
         self.sub_in = Sub('env{}_input'.format(int(self.env_idx)))
         self.frames_stack = deque(maxlen=args['num_frames_stacked'])
-        self.reset_vars()
+        self.step_counter = 0
+        self.reset_env(reset_mime=False)
 
         # clean the dask pipes
         self.pub_out.put(None)
@@ -32,7 +33,7 @@ class AsynchMimeEnv:
         self.env_idx = args['env_idx']
         self.env_name = args['env_name']
         self.max_length = args['max_length']
-        self.render = args['render']
+        self.render = args['render'] and self.env_idx == 0
         # I use -1 because I count the griper as 2 vals
         self.action_keys = Actions.action_space_to_keys(
             args['robot_action_space'], args['dim_skill_action'] - 1)
@@ -52,7 +53,7 @@ class AsynchMimeEnv:
         if isinstance(self.skills_timescales, int):
             skills_timescales = {}
             for skill in range(num_skills):
-                skills_timescales[skill] = self.skills_timescales
+                skills_timescales[str(skill)] = self.skills_timescales
             self.skills_timescales = skills_timescales
 
     def env_loop(self):
@@ -64,16 +65,13 @@ class AsynchMimeEnv:
                 obs = self.reset_env()
                 self.publish_obs(obs_dict={'observation': obs})
             elif input_['function'] == 'step':
-                print('env {} step, counter after action = {}, counter = {}'.format(
-                    self.env_idx, self.step_counter_after_new_action, self.step_counter))
                 action_applied = self.get_action_applied(input_['action'])
                 obs, reward, done, info = self.env.step(action_applied)
                 info = self.update_info(info)
+                if done:
+                    obs = self.reset_env()
                 self.publish_obs(
                     obs_dict={'observation': obs, 'reward': reward, 'done': done, 'info': info})
-                if done:
-                    # TODO: what to do with this guy???
-                    obs = self.reset_env()
             else:
                 raise NotImplementedError('function {} is not implemented'.format(
                     input_['function']))
@@ -87,18 +85,20 @@ class AsynchMimeEnv:
             print('WARNING: the scene does not have set_rl_mode function')
         if self.max_length is not None:
             env._max_episode_steps = self.max_length
-        if self.render and self.env_idx == 0:
+        if self.render:
             env.unwrapped.scene.renders(True)
         return env
 
-    def reset_vars(self):
-        print('env {} reset vars'.format(self.env_idx))
+    def reset_env(self, reset_mime=True):
+        if self.render:
+            print('env {} is reset (ts = {})'.format(self.env_idx, self.step_counter))
         self.step_counter = 0
         self.step_counter_after_new_action = 0
         self.frames_stack.clear()
         self.prev_script = None
         self.need_master_action = True
-        return self.env.reset()
+        if reset_mime:
+            return self.env.reset()
 
     def update_info(self, info):
         if len(info['failure_message']):
@@ -115,8 +115,6 @@ class AsynchMimeEnv:
 
     def convert_obs(self, obs_dict):
         if 'Cam' not in self.env_name:
-            # TODO: this was not debugged at all
-            misc.pudb()
             observation = np.array([])
             obs_sorted = OrderedDict(sorted(obs_dict.items(), key=lambda t: t[0]))
             for obs_key, obs_value in obs_sorted.items():
@@ -147,9 +145,9 @@ class AsynchMimeEnv:
         return obs_tensor
 
     def get_action_applied(self, action):
+        skill = action.pop('skill')[0]
         if self.hrlbc_setup:
-            skill = action.pop('skill')[0]
-            if self.step_counter_after_new_action >= self.skills_timescales[skill]:
+            if self.step_counter_after_new_action >= self.skills_timescales[str(skill)]:
                 print('env {} needs a new master action (skill = {}, ts = {})'.format(
                     self.env_idx, skill, self.step_counter))
                 self.need_master_action = True
@@ -158,14 +156,15 @@ class AsynchMimeEnv:
                 self.need_master_action = False
             return action
 
-        if self.prev_script != action:
-            self.prev_script = action
-            self.prev_action_chain = self.env.unwrapped.scene.script_subtask(action)
+        if self.prev_script != skill:
+            self.prev_script = skill
+            self.prev_action_chain = self.env.unwrapped.scene.script_subtask(skill)
         action_chain = itertools.chain(*self.prev_action_chain)
         action_applied = Actions.get_dict_null_action(self.action_keys)
         action_update = next(action_chain, None)
         if action_update is None:
-            print('env {} needs a new master action'.format(self.env_idx))
+            print('env {} needs a new master action (skill = {}, ts = {})'.format(
+                self.env_idx, skill, self.step_counter))
             self.need_master_action = True
             self.step_counter_after_new_action = 0
         else:
