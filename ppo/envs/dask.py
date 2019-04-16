@@ -6,6 +6,7 @@ from dask.distributed import Client, LocalCluster, Pub, Sub
 from gym.spaces import Box, Discrete
 from collections import OrderedDict, deque
 
+import bc.utils.misc as bc_misc
 from bc.dataset import Actions
 from ppo.tools import misc
 from ppo.envs.mime import MimeEnv
@@ -28,10 +29,10 @@ class DaskEnv:
         self.num_processes = config.num_processes
         self.batch_size = config.dask_batch_size
         assert self.batch_size <= self.num_processes
-        self.device = config.device
+        self.device = str(bc_misc.get_device(config.device))
         self.observation_type = config.input_type
         self.num_frames_stacked = config.num_frames_stacked
-        self.compress_frames = config.compress_frames  # TODO: implement it
+        self.compress_frames = config.compress_frames
 
     def _init_dask(self, config):
         cluster = LocalCluster(n_workers=self.num_processes)

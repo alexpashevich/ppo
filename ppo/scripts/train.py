@@ -62,7 +62,6 @@ def main():
 
     stats_global, stats_local = stats.init(args.num_processes)
     start = time.time()
-    # TODO: fix gemini device
 
     if hasattr(policy.base, 'resnet'):
         assert_tensors = utils.init_frozen_skills_check(obs, policy)
@@ -98,7 +97,6 @@ def main():
                 stats_global, stats_local, reward, done, infos, args)
 
             # If done then clean the history of observations.
-            # masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
             masks = {i: torch.FloatTensor([0.0] if done_ else [1.0]) for i, done_ in enumerate(done)}
             # check that the obs dictionary contains obs from all envs that will be stored in rollouts
             assert len(set(np.where(need_master_action)[0]).difference(obs.keys())) == 0
