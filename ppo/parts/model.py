@@ -49,25 +49,37 @@ class Policy(nn.Module):
     def forward(self, inputs, rnn_hxs, masks):
         raise NotImplementedError
 
-    def act(self, inputs, actions, rnn_hxs, masks, deterministic=False):
-        value, actor_features, rnn_hxs = self.base(inputs, actions, rnn_hxs, masks)
+    def act(self, inputs, memory_actions, rnn_hxs, masks, deterministic=False):
+        inputs, env_idxs = misc.dict_to_tensor(inputs)
+        value, actor_features, rnn_hxs = self.base(
+            inputs,
+            misc.dict_to_tensor(memory_actions)[0],
+            misc.dict_to_tensor(rnn_hxs)[0],
+            misc.dict_to_tensor(masks)[0])
         dist = self.dist(actor_features)
 
         if deterministic:
             action = dist.mode()
         else:
             action = dist.sample()
-
         action_log_probs = dist.log_probs(action)
-        dist_entropy = dist.entropy().mean()
 
-        return value, action, action_log_probs, rnn_hxs
+        return (misc.tensor_to_dict(value, env_idxs)[0],
+                misc.tensor_to_dict(action, env_idxs)[0],
+                misc.tensor_to_dict(action_log_probs, env_idxs)[0],
+                misc.tensor_to_dict(rnn_hxs, env_idxs)[0])
 
-    def get_value(self, inputs, actions, rnn_hxs, masks):
-        value, _, _ = self.base(inputs, actions, rnn_hxs, masks)
-        return value
+    def get_value_detached(self, inputs, actions, rnn_hxs, masks):
+        inputs, env_idxs = misc.dict_to_tensor(inputs)
+        value, _, _ = self.base(
+            inputs,
+            misc.dict_to_tensor(actions)[0],
+            misc.dict_to_tensor(rnn_hxs)[0],
+            misc.dict_to_tensor(masks)[0])
+        return misc.tensor_to_dict(value.detach(), env_idxs)[0]
 
     def evaluate_actions(self, inputs, actions, rnn_hxs, masks, action):
+        ''' This function is called from the PPO update so all the arguments are tensors. '''
         value, actor_features, rnn_hxs = self.base(inputs, actions, rnn_hxs, masks)
         dist = self.dist(actor_features)
 

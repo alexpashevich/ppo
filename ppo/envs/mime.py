@@ -10,7 +10,7 @@ from bc.dataset import Frames, Actions
 from ppo.tools import misc
 
 
-class AsynchMimeEnv:
+class MimeEnv:
     def __init__(self, args):
         self.parse_args(args)
 
@@ -90,8 +90,7 @@ class AsynchMimeEnv:
         return env
 
     def reset_env(self, reset_mime=True):
-        if self.render:
-            print('env {} is reset (ts = {})'.format(self.env_idx, self.step_counter))
+        print('env {} is reset (ts = {})'.format(self.env_idx, self.step_counter))
         self.step_counter = 0
         self.step_counter_after_new_action = 0
         self.frames_stack.clear()
@@ -126,7 +125,7 @@ class AsynchMimeEnv:
                     elif isinstance(obs_value, list) and isinstance(obs_value[0], np.ndarray):
                         obs_value = np.concatenate(obs_value)
                     observation = np.concatenate((observation, obs_value))
-            obs_tensor = torch.tensor(observation)
+            obs_tensor = torch.tensor(observation).float()
         else:
             im_keys = ['depth', 'rgb', 'mask']
             obs_im = {}
@@ -155,7 +154,10 @@ class AsynchMimeEnv:
             else:
                 self.need_master_action = False
             return action
+        else:
+            return self.get_script_action(skill)
 
+    def get_script_action(self, skill):
         if self.prev_script != skill:
             self.prev_script = skill
             self.prev_action_chain = self.env.unwrapped.scene.script_subtask(skill)

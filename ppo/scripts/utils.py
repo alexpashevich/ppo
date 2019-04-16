@@ -4,19 +4,17 @@ import os
 import numpy as np
 import pickle as pkl
 
-from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from shutil import copyfile
 from io import BytesIO
 
-from ppo.tools.envs import VecPyTorchFrameStack, make_vec_envs, make_env
-from ppo.tools.misc import get_vec_normalize, load_from_checkpoint
+from ppo.tools.misc import load_from_checkpoint
 from ppo.algo.ppo import PPO
 from ppo.parts.model import MasterPolicy
 from ppo.parts.storage import RolloutStorage
-from ppo.dask.env import DaskEnv
+from ppo.envs.dask import DaskEnv
 
-import ppo.tools.stats as stats
-import ppo.tools.misc as misc
+from ppo.tools import stats
+from ppo.tools import misc
 
 
 def create_policy(args, envs, device, action_space, logdir):
@@ -79,8 +77,7 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
     args.render = False
     # make the evaluation horizon longer (if eval_max_length_factor > 1)
     args.max_length = int(args.max_length * args.eval_max_length_factor)
-    args.num_processes = args.num_eval_episodes
-    # args.dask_batch_size = int(args.num_eval_episodes / 2)
+    args.dask_batch_size = int(args.num_eval_episodes / 2)
     args.dask_batch_size = args.num_eval_episodes
     num_processes = args.num_eval_episodes
     args.seed += num_processes
@@ -98,107 +95,112 @@ def evaluate(policy, args_train, device, train_envs_or_ob_rms, envs_eval):
     #     vec_norm.ob_rms = ob_rms
 
     obs = envs_eval.reset()
-    recurrent_hidden_states = torch.zeros(
-        num_processes, policy.recurrent_hidden_state_size, device=device)
-    masks = torch.zeros(num_processes, 1, device=device)
+    recurrent_hidden_states = {env_idx: torch.zeros(policy.recurrent_hidden_state_size, device=device)
+                               for env_idx in range(num_processes)}
+    masks = {env_idx: torch.zeros(1, device=device) for env_idx in range(num_processes)}
     stats_global, stats_local = stats.init(num_processes, eval=True)
 
-    need_master_action, prev_policy_outputs = np.ones((num_processes,)), None
+    need_master_action, policy_values_cache = np.ones((num_processes,)), None
     reward = torch.zeros((num_processes, 1)).type_as(obs[0])
     if args.action_memory == 0:
-        last_actions = None
+        memory_actions = None
     else:
-        last_actions = -torch.ones(num_processes, args.action_memory).type_as(obs[0])
+        memory_actions = {env_idx: -torch.ones((args.action_memory,)).type_as(obs[0])
+                          for env_idx in range(num_processes)}
     print('Evaluating...')
     while len(stats_global['return']) < args.num_eval_episodes:
-        obs = misc.dict_to_tensor(obs)[0]
         with torch.no_grad():
-            if last_actions is None:
-                last_actions_local = None
-            else:
-                last_actions_local = last_actions[np.where(need_master_action)]
-            value_unused, action, action_log_prob_unused, recurrent_hidden_states = get_policy_values(
+            policy_values_cache = get_policy_values(
                 policy,
-                (obs, last_actions_local, recurrent_hidden_states, masks),
-                need_master_action, prev_policy_outputs, deterministic=True)
-            prev_policy_outputs = value_unused, action, action_log_prob_unused, recurrent_hidden_states
+                obs,
+                memory_actions,
+                recurrent_hidden_states,
+                masks,
+                policy_values_cache,
+                need_master_action,
+                deterministic=True)
+            action, recurrent_hidden_states = policy_values_cache[1], policy_values_cache[3]
 
         # Observe reward and next obs
         obs, reward, done, infos, need_master_action = do_master_step(
             action, obs, reward, policy, envs_eval, hrlbc_setup=args.hrlbc_setup)
-        if last_actions is not None:
-            for env_idx in np.where(need_master_action)[0]:
-                last_actions[env_idx, :-1] = last_actions[env_idx, 1:]
-                last_actions[env_idx, -1] = action[env_idx, 0]
-            for env_idx, done_ in enumerate(done):
-                if done_:
-                    last_actions[env_idx] = -1.
-
+        memory_actions = update_memory_actions(memory_actions, action, need_master_action, done)
         stats_global, stats_local = stats.update(
             stats_global, stats_local, reward, done, infos, args, overwrite_terminated=False)
-        masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
+        masks = {i: torch.FloatTensor([0.0] if done_ else [1.0]) for i, done_ in enumerate(done)}
     return envs_eval, stats_global
 
 
 def get_policy_values(
-        policy, rollouts_or_explicit_tuple, need_master_action,
-        prev_policy_outputs, deterministic=False):
+        policy,
+        obs,
+        memory_actions,
+        recurrent_states,
+        masks,
+        policy_values_cache,
+        need_master_action,
+        deterministic=False):
     ''' The function is sampling the policy actions '''
-    if isinstance(rollouts_or_explicit_tuple, (tuple, list)):
-        # during evaluation we store the policy output in variables so we pass them directly
-        obs, last_actions, recurrent_states_input, masks = rollouts_or_explicit_tuple
-    else:
-        # during trainin we store the policy output in rollouts so we pass the rollouts
-        rollouts = rollouts_or_explicit_tuple
-        obs = rollouts.get_last(rollouts.obs)
-        last_actions = rollouts.get_last(rollouts.actions, processes=np.where(need_master_action)[0])
-        recurrent_states_input = rollouts.get_last(rollouts.recurrent_hidden_states)
-        masks = rollouts.get_last(rollouts.masks)
     with torch.no_grad():
-        if np.all(need_master_action):
-            # each environment requires a master action
-            value, action, log_prob, recurrent_states = policy.act(
-                obs, last_actions, recurrent_states_input, masks, deterministic)
-        else:
-            # only several environments require a master action
-            # update only the values of those
-            value, action, log_prob, recurrent_states = prev_policy_outputs
-            indices = np.where(need_master_action)
-            value[indices], action[indices], log_prob[indices], recurrent_states[indices] = policy.act(
-                obs[indices], last_actions, recurrent_states_input[indices],
-                masks[indices], deterministic)
-    return value, action, log_prob, recurrent_states
+        value_new, action_new, log_prob_new, recurrent_states_new = policy.act(
+            obs, memory_actions, recurrent_states, masks, deterministic)
+
+        if policy_values_cache is None:
+            return value_new, action_new, log_prob_new, recurrent_states_new
+
+        value, action, log_prob, recurrent_states = policy_values_cache
+        for env_idx in np.where(need_master_action)[0]:
+            value[env_idx] = value_new[env_idx]
+            action[env_idx] = action_new[env_idx]
+            log_prob[env_idx] = log_prob_new[env_idx]
+            recurrent_states[env_idx] = recurrent_states_new[env_idx]
+        return value, action, log_prob, recurrent_states
 
 
-def do_master_step(
-        action_master, obs_tensor, reward_master, policy, envs, hrlbc_setup=False):
-    obs_dict, env_idxs = misc.tensor_to_dict(obs_tensor)
-    num_envs = action_master.shape[0]
+# prev_action_master = None
+# prev_need_master_action = None
+def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=False):
+    # # TODO: remove this after debug
+    # global prev_action_master, prev_need_master_action
+    # if prev_need_master_action is not None:
+    #     for env_idx, needed_action_before in enumerate(prev_need_master_action):
+    #         if not needed_action_before:
+    #             assert action_master[env_idx] == prev_action_master[env_idx]
+
+    num_envs = envs.num_processes
+    # we expect the action_master to have an action for each env
+    # DaskEnv is taking care of using only those of them which are necessary
+    assert len(action_master.keys()) == num_envs
     info_master, done_master = np.array([None] * num_envs), np.array([False] * num_envs)
     while True:
         if hrlbc_setup:
             # get the skill action
             with torch.no_grad():
-                action_skill_dict, env_idxs = policy.get_worker_action(action_master, obs_dict)
+                action_skill_dict, env_idxs = policy.get_worker_action(action_master, obs)
         else:
-            # it is not really a skill action, but we use this name to simplify the code
-            action_skill_dict, env_idxs = misc.tensor_to_dict(action_master, env_idxs)
-            for env_idx, env_action_master in action_skill_dict.items():
+            # create a dictionary out of master action values
+            action_skill_dict = {}
+            for env_idx, env_action_master in action_master.items():
                 action_skill_dict[env_idx] = {'skill': env_action_master}
-        obs_dict, reward_envs, done_envs, info_envs = envs.step(action_skill_dict)
+        obs, reward_envs, done_envs, info_envs = envs.step(action_skill_dict)
         need_master_action = update_master_variables(
             num_envs=num_envs,
-            env_idxs=obs_dict.keys(),
+            env_idxs=obs.keys(),
             envs_dict={'reward': reward_envs, 'done': done_envs, 'info': info_envs},
             master_dict={'reward': reward_master, 'done': done_master, 'info': info_master})
         if np.any(need_master_action):
             break
-    return (obs_dict, reward_master, done_master, info_master, need_master_action)
+
+    # # TODO: remove this after debug
+    # from copy import deepcopy
+    # prev_action_master = deepcopy(action_master)
+    # prev_need_master_action = deepcopy(need_master_action)
+
+    return (obs, reward_master, done_master, info_master, need_master_action)
 
 
 def update_master_variables(num_envs, env_idxs, envs_dict, master_dict):
     '''' Returns a numpy array of 0/1 with indication which env needs a master action '''
-    # TODO: reuse it in eval
     need_master_action = np.zeros((num_envs,))
     for env_idx in env_idxs:
         if envs_dict['info'][env_idx]['need_master_action']:
@@ -210,6 +212,19 @@ def update_master_variables(num_envs, env_idxs, envs_dict, master_dict):
             master_dict['info'][env_idx] = envs_dict['info'][env_idx]
         master_dict['reward'][env_idx] += envs_dict['reward'][env_idx]
     return need_master_action
+
+
+def update_memory_actions(memory_actions, action, need_master_action, done):
+    ''' Updates the actions passed to the policy as a memory. '''
+    if memory_actions is None:
+        return memory_actions
+    for env_idx in np.where(need_master_action)[0]:
+        memory_actions[env_idx][:-1] = memory_actions[env_idx][1:]
+        memory_actions[env_idx][-1] = action[env_idx][0]
+    for env_idx, done_ in enumerate(done):
+        if done_:
+            memory_actions[env_idx] = -1.
+    return memory_actions
 
 
 def perform_actions(action_sequence, observation, policy, envs, args):

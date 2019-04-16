@@ -2,6 +2,8 @@ import torch
 import numpy as np
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
+from ppo.tools import misc
+
 
 def _flatten_helper(T, N, _tensor):
     return _tensor.view(T * N, *_tensor.size()[2:])
@@ -72,12 +74,12 @@ class RolloutStorage(object):
     def get_last(self, tensor, *args, **kwargs):
         if tensor is self.actions:
             return self._get_last_actions(*args, **kwargs)
-        lasts = []
+        lasts = {}
         for index in range(tensor.shape[1]):
-            lasts.append(tensor[self.steps[index], index])
-        return torch.stack(lasts)
+            lasts[index] = tensor[self.steps[index], index]
+        return lasts
 
-    def _get_last_actions(self, steps=None, processes=None):
+    def _get_last_actions(self, steps=None, processes=None, as_tensor=False):
         if self.action_memory == 0:
             return None
         if processes is None:
@@ -92,13 +94,17 @@ class RolloutStorage(object):
             else:
                 last_reset = 0
             actions_available = np.clip(step - last_reset, 0, self.action_memory)
-            # print('env step = {}, available = {}, last_reset = {}'.format(
-            #     process, actions_available, last_reset))
             if actions_available > 0:
                 last_actions_ = self.actions[step - actions_available: step, process, 0]
                 last_actions[idx, -actions_available:] = last_actions_
-        # print('last_actions = {}'.format(last_actions))
-        return last_actions
+        if as_tensor:
+            return last_actions
+        else:
+            import pudb; pudb.set_trace()
+            last_actions_dict = {}
+            for process in processes:
+                last_actions_dict[process] = last_actions[process]
+            return last_actions_dict
 
     def after_update(self):
         last_indices = np.stack((self.steps, np.arange(self.steps.shape[0])))
@@ -117,7 +123,7 @@ class RolloutStorage(object):
                 gae = delta + gamma * tau * self.masks[step + 1] * gae
                 self.returns[step] = gae + self.value_preds[step]
         else:
-            for env_idx in range(next_value.shape[0]):
+            for env_idx in next_value.keys():
                 self.returns[self.steps[env_idx], env_idx] = next_value[env_idx]
                 for step in reversed(range(self.steps[env_idx])):
                     self.returns[step, env_idx] = self.returns[step + 1, env_idx] * \
@@ -148,7 +154,7 @@ class RolloutStorage(object):
             adv_targ = advantages[indices]
 
             timesteps, env_idxs = indices
-            last_actions_batch = self._get_last_actions(timesteps, env_idxs)
+            last_actions_batch = self._get_last_actions(timesteps, env_idxs, as_tensor=True)
             yield obs_batch, last_actions_batch, recurrent_hidden_states_batch, actions_batch, \
                 value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ
 

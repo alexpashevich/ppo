@@ -8,7 +8,7 @@ from collections import OrderedDict, deque
 
 from bc.dataset import Actions
 from ppo.tools import misc
-from ppo.dask.routine import AsynchMimeEnv
+from ppo.envs.mime import MimeEnv
 
 SUPPORTED_MIME_ENVS = 'Bowl', 'Salad', 'SimplePour', 'SimplePourNoDrops'
 
@@ -43,7 +43,7 @@ class DaskEnv:
             env_config = dict(env_idx=env_idx)
             env_config.update(vars(config))
             env_args.append(env_config)
-        _ = client.map(AsynchMimeEnv, env_args)
+        _ = client.map(MimeEnv, env_args)
         sub_in = Sub('observations')
         self.pub_out = pub_out
         self.sub_in = sub_in

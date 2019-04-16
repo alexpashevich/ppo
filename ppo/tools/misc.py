@@ -3,17 +3,6 @@ import torch.nn as nn
 
 import os
 
-from ppo.tools.envs import VecNormalize
-
-
-def get_vec_normalize(venv):
-    if isinstance(venv, VecNormalize):
-        return venv
-    elif hasattr(venv, 'venv'):
-        return get_vec_normalize(venv.venv)
-    return None
-
-
 # Necessary for my KFAC implementation.
 class AddBias(nn.Module):
     def __init__(self, bias):
@@ -112,6 +101,7 @@ def load_from_checkpoint(policy, path, device):
     print('loaded the BC checkpoint from {}'.format(path))
     return loaded_dict['statistics']
 
+
 def load_optimizer(optimizer, optimizer_state_dict, device):
     optimizer.load_state_dict(optimizer_state_dict)
     target_device = 'cpu' if device.type == 'cpu' else 'cuda'
@@ -119,6 +109,7 @@ def load_optimizer(optimizer, optimizer_state_dict, device):
         for k, v in state.items():
             if isinstance(v, torch.Tensor):
                 state[k] = getattr(v, target_device)()
+
 
 def load_ob_rms(ob_rms, envs):
     if ob_rms:
@@ -130,6 +121,8 @@ def load_ob_rms(ob_rms, envs):
 
 def dict_to_tensor(dictionary):
     ''' Function to make a tensor out of a dictionary where the keys are env_idxs '''
+    if dictionary is None:
+        return dictionary, None
     tensor_list = []
     for key in sorted(dictionary.keys()):
         tensor_list.append(dictionary[key])
@@ -138,6 +131,8 @@ def dict_to_tensor(dictionary):
 
 def tensor_to_dict(tensor, keys=None):
     ''' Function to make a dictionary out of a tensor where the keys are env_idxs '''
+    if tensor is None:
+        return tensor, None
     if keys is None:
         keys = range(tensor.shape[0])
     dictionary = {}
