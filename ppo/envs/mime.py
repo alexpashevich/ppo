@@ -89,14 +89,15 @@ class MimeEnv:
         return env
 
     def reset_env(self, reset_mime=True):
-        print('env {} is reset (ts = {})'.format(self.env_idx, self.step_counter))
         self.step_counter = 0
         self.step_counter_after_new_action = 0
         self.frames_stack.clear()
         self.prev_script = None
         self.need_master_action = True
         if reset_mime:
-            return self.env.reset()
+            obs = self.env.reset()
+            print('env {} is reset (ts = {})'.format(self.env_idx, self.step_counter))
+            return obs
 
     def update_info(self, info):
         if len(info['failure_message']):
@@ -146,8 +147,8 @@ class MimeEnv:
         skill = action.pop('skill')[0]
         if self.hrlbc_setup:
             if self.step_counter_after_new_action >= self.skills_timescales[str(skill)]:
-                print('env {} needs a new master action (skill = {}, ts = {})'.format(
-                    self.env_idx, skill, self.step_counter))
+                # print('env {} needs a new master action (skill = {}, ts = {})'.format(
+                #     self.env_idx, skill, self.step_counter))
                 self.need_master_action = True
                 self.step_counter_after_new_action = 0
             else:
@@ -164,8 +165,8 @@ class MimeEnv:
         action_applied = Actions.get_dict_null_action(self.action_keys)
         action_update = next(action_chain, None)
         if action_update is None:
-            print('env {} needs a new master action (skill = {}, ts = {})'.format(
-                self.env_idx, skill, self.step_counter))
+            # print('env {} needs a new master action (skill = {}, ts = {})'.format(
+            #     self.env_idx, skill, self.step_counter))
             self.need_master_action = True
             self.step_counter_after_new_action = 0
         else:

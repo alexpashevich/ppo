@@ -80,6 +80,7 @@ def evaluate(policy, args_train, device, envs_train, envs_eval):
     args.dask_batch_size = int(args.num_eval_episodes / 2)
     args.dask_batch_size = args.num_eval_episodes
     num_processes = args.num_eval_episodes
+    args.num_processes = num_processes
     args.seed += num_processes
     if envs_eval is None:
         envs_eval = DaskEnv(args)
