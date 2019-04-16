@@ -87,7 +87,7 @@ def get_args():
                         help='number of frames that the network receives as the input')
     parser.add_argument('--cnn-output-features', type=int, default=512,
                         help='the number of resnet features')
-    parser.add_argument('--robot-action-space', type=str, default='tool',
+    parser.add_argument('--robot-action-space', type=str, default='tool_lin_ori',
                         help='the mime action space: can be tool or joints')
     # evaluation
     parser.add_argument('--num-eval-episodes', type=int, default=8,

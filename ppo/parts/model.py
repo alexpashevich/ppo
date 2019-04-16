@@ -91,9 +91,7 @@ class Policy(nn.Module):
 
 class MasterPolicy(Policy):
     def __init__(self, obs_shape, action_space, base_kwargs=None):
-        # I use -1 because I count the griper as 2 vals
-        self.action_keys = Actions.action_space_to_keys(
-            base_kwargs['robot_action_space'], base_kwargs['dim_skill_action'] - 1)
+        self.action_keys = Actions.action_space_to_keys(base_kwargs['robot_action_space'])[0]
         self.statistics = None
         super(MasterPolicy, self).__init__(obs_shape, action_space, base_kwargs)
 
@@ -232,24 +230,20 @@ class ResnetBase(NNBase):
             cnn_output_features=512,
             action_memory=0,
             archi='resnet18',
-            pretrained=False,
-            **kwargs):
+            mode='features',
+            **unused_kwargs):
         super(ResnetBase, self).__init__(recurrent_policy, hidden_size, hidden_size)
 
-        self.num_skills = num_skills
         self.dim_skill_action = dim_skill_action
-        self.num_skill_action_pred = num_skill_action_pred
-        num_outputs_resnet = self.num_skills * dim_skill_action * num_skill_action_pred
-        if 'use_direct_actions' in kwargs and kwargs['use_direct_actions']:
-            num_outputs_resnet = dim_skill_action
-        self.resnet = getattr(resnet, archi)(
-            pretrained=pretrained,
-            input_dim=num_inputs,
-            num_classes=num_outputs_resnet,  # dim_action in ResNet
-            num_skills=num_skills,
-            dim_action=dim_skill_action*num_skill_action_pred,  # dim_action in ResNetBranch
-            return_features=True)
-
+        self.num_skills = num_skills
+        # self.num_skill_action_pred = num_skill_action_pred
+        # num_outputs_resnet = self.num_skills * dim_skill_action * num_skill_action_pred
+        # if 'use_direct_actions' in kwargs and kwargs['use_direct_actions']:
+        #     num_outputs_resnet = dim_skill_action
+        self.resnet = resnet.make_resnet(
+            archi=archi,
+            mode=mode,
+            input_dim=num_inputs)
         init_ = lambda m: misc.init(m,
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0))

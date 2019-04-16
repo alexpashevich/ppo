@@ -68,7 +68,7 @@ def save_model(save_path, policy, optimizer, epoch, env_steps, device, envs, arg
         start_epoch=epoch,
         start_step=env_steps,
         args=args)
-    # TODO: save env ob_rms
+    # TODO: save env statistics
 
     model_name = 'model_eval_{}.pt'.format(epoch) if eval else 'model.pt'
     model_path = os.path.join(save_path, model_name)

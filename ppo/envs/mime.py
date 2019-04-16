@@ -34,9 +34,7 @@ class MimeEnv:
         self.env_name = args['env_name']
         self.max_length = args['max_length']
         self.render = args['render'] and self.env_idx == 0
-        # I use -1 because I count the griper as 2 vals
-        self.action_keys = Actions.action_space_to_keys(
-            args['robot_action_space'], args['dim_skill_action'] - 1)
+        self.action_keys = Actions.action_space_to_keys(args['robot_action_space'])[0]
         if args['input_type'] == 'depth':
             self.channels = ('depth',)
         elif args['input_type'] == 'rgbd':
