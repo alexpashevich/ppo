@@ -1,15 +1,11 @@
 import torch
-import mime
 import numpy as np
 
 from dask.distributed import Client, LocalCluster, Pub, Sub
 from baselines.common.running_mean_std import RunningMeanStd
-from gym.spaces import Box, Discrete
-from collections import OrderedDict, deque
+from gym.spaces import Box
 
 import bc.utils.misc as bc_misc
-from bc.dataset import Actions
-from ppo.tools import misc
 from ppo.envs.mime import MimeEnv
 
 SUPPORTED_MIME_ENVS = 'Bowl', 'Salad', 'SimplePour', 'SimplePourNoDrops'
