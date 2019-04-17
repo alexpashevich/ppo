@@ -100,6 +100,7 @@ class RolloutStorage(object):
         if as_tensor:
             return last_actions
         else:
+            # TODO: check that it works
             import pudb; pudb.set_trace()
             last_actions_dict = {}
             for process in processes:

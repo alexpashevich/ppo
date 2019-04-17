@@ -1,11 +1,6 @@
 import torch
 import copy
-import os
 import numpy as np
-import pickle as pkl
-
-from shutil import copyfile
-from io import BytesIO
 
 from ppo.algo.ppo import PPO
 from ppo.parts.model import MasterPolicy
@@ -16,13 +11,11 @@ from ppo.tools import stats
 from ppo.tools import misc
 
 
-def create_policy(args, envs, device, action_space, logdir, bc_state_dict):
+def create_policy(args, envs, action_space):
     policy = MasterPolicy(
         envs.observation_space.shape,
         action_space,
         **vars(args))
-    if bc_state_dict:
-        misc.load_from_state_dict(bc_state_dict, policy)
     return policy
 
 
@@ -33,7 +26,7 @@ def create_agent(args, policy):
     return agent
 
 
-def init_rollout_storage(
+def create_rollout_storage(
         args, envs_train, policy, action_space, action_space_skills, device):
     rollouts = RolloutStorage(
         args.num_master_steps_per_update,
@@ -49,7 +42,7 @@ def init_rollout_storage(
     return rollouts, obs
 
 
-def init_frozen_skills_check(obs, policy):
+def create_frozen_skills_check(obs, policy):
     # GT to check whether the skills stay unchanged
     with torch.no_grad():
         test_tensor = misc.dict_to_tensor(obs)[0]
@@ -60,7 +53,7 @@ def init_frozen_skills_check(obs, policy):
     return test_tensor, test_master, features_check, skills_check
 
 
-def make_frozen_skills_check(
+def do_frozen_skills_check(
         policy, test_tensor, test_master, feature_check, skills_check):
     # check if the skills are not changed by the the RL updates
     with torch.no_grad():
@@ -218,6 +211,7 @@ def update_memory_actions(memory_actions, action, need_master_action, done):
 
 
 def perform_actions(action_sequence, observation, policy, envs, args):
+    raise NotImplementedError('this functions needs to be fixed')
     # observation = envs.reset()
     reward = 0
     for action in action_sequence:

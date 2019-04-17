@@ -105,6 +105,8 @@ class MimeEnv:
         info['length'] = self.step_counter
         info['need_master_action'] = self.need_master_action
         info['length_after_new_action'] = self.step_counter_after_new_action
+        if self.need_master_action:
+            self.step_counter_after_new_action = 0
         return info
 
     def publish_obs(self, obs_dict):
@@ -150,7 +152,6 @@ class MimeEnv:
                 # print('env {} needs a new master action (skill = {}, ts = {})'.format(
                 #     self.env_idx, skill, self.step_counter))
                 self.need_master_action = True
-                self.step_counter_after_new_action = 0
             else:
                 self.need_master_action = False
             return action
@@ -168,7 +169,6 @@ class MimeEnv:
             # print('env {} needs a new master action (skill = {}, ts = {})'.format(
             #     self.env_idx, skill, self.step_counter))
             self.need_master_action = True
-            self.step_counter_after_new_action = 0
         else:
             self.need_master_action = False
             action_applied.update(Actions.filter_action(action_update, self.action_keys))

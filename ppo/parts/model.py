@@ -231,9 +231,10 @@ class ResnetBase(NNBase):
 
         self.dim_action = bc_args['dim_action'] + 1
         self.num_skills = num_skills
+        self.action_memory = action_memory
         self.resnet = resnet.make_resnet(
             archi=bc_args['archi'],
-            mode=bc_args['mode'],
+            mode='features',
             input_dim=bc_args['input_dim'])
         init_ = lambda m: misc.init(m,
             nn.init.orthogonal_,

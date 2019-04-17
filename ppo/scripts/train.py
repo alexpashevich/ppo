@@ -7,6 +7,7 @@ from gym.spaces import Discrete, Box
 import bc.utils.misc as bc_misc
 from ppo.tools import misc
 from ppo.tools import log
+from ppo.tools import load
 from ppo.tools import stats
 from ppo.scripts import utils
 from ppo.envs.dask import DaskEnv
@@ -19,11 +20,11 @@ def init_training(args, logdir):
     print('Running the experiments on {}'.format(device))
 
     # try to load from a checkpoint
-    args, bc_state_dict, bc_statistics = misc.load_bc_checkpoint(args, device)
-    loaded_dict = misc.try_to_load_model(logdir, device)
+    args, bc_model, bc_statistics = load.bc_checkpoint(args, device)
+    loaded_dict = load.ppo_model(logdir, device)
     if loaded_dict:
         args = loaded_dict['args']
-    misc.seed_torch(args)
+    misc.seed_exp(args)
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 
     # create the parallel envs
@@ -35,7 +36,9 @@ def init_training(args, logdir):
         policy = loaded_dict['policy']
         start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
     else:
-        policy = utils.create_policy(args, envs_train, device, action_space, logdir, bc_state_dict)
+        policy = utils.create_policy(args, envs_train, action_space)
+        if bc_model:
+            load.policy_from_bc_model(policy, bc_model)
         start_step, start_epoch = 0, 0
     policy.to(device)
     # TODO: move bc_statisitcs in the else condition and check that in if statistics are not None
@@ -47,7 +50,7 @@ def init_training(args, logdir):
     if loaded_dict:
         # load normalization and optimizer statistics
         envs_train.obs_running_stats = loaded_dict['obs_running_stats']
-        misc.load_optimizer(agent.optimizer, loaded_dict['optimizer_state_dict'], device)
+        load.optimizer(agent.optimizer, loaded_dict['optimizer_state_dict'], device)
 
     all_envs = envs_train, envs_eval
     return args, device, all_envs, policy, start_epoch, start_step, agent, action_space
@@ -60,14 +63,14 @@ def main():
         args, logdir)
     envs_train, envs_eval = all_envs
     action_space_skills = Box(-np.inf, np.inf, (args.bc_args['dim_action'],), dtype=np.float)
-    rollouts, obs = utils.init_rollout_storage(
+    rollouts, obs = utils.create_rollout_storage(
         args, envs_train, policy, action_space, action_space_skills, device)
 
     stats_global, stats_local = stats.init(args.num_processes)
     start = time.time()
 
     if hasattr(policy.base, 'resnet'):
-        assert_tensors = utils.init_frozen_skills_check(obs, policy)
+        assert_tensors = utils.create_frozen_skills_check(obs, policy)
 
     if args.pudb:
         # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
@@ -115,6 +118,7 @@ def main():
             reward[np.where(done)] = 0
             env_steps += sum([info['length_after_new_action']
                               for info in np.array(infos)[np.where(need_master_action)[0]]])
+            print('Current framerate = {}'.format(env_steps/(time.time()-start)))
 
         # master policy training
         with torch.no_grad():
@@ -128,7 +132,7 @@ def main():
         rollouts.after_update()
 
         if hasattr(policy.base, 'resnet'):
-            utils.make_frozen_skills_check(policy, *assert_tensors)
+            utils.do_frozen_skills_check(policy, *assert_tensors)
 
         if epoch % args.save_interval == 0:
             log.save_model(
