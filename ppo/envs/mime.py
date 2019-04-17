@@ -18,7 +18,7 @@ class MimeEnv:
         self.env = self.create_env(args['seed'])
         self.pub_out = Pub('observations')
         self.sub_in = Sub('env{}_input'.format(int(self.env_idx)))
-        self.frames_stack = deque(maxlen=args['num_frames_stacked'])
+        self.frames_stack = deque(maxlen=args['bc_args']['num_frames'])
         self.step_counter = 0
         self.reset_env(reset_mime=False)
 
@@ -34,7 +34,7 @@ class MimeEnv:
         self.env_name = args['env_name']
         self.max_length = args['max_length']
         self.render = args['render'] and self.env_idx == 0
-        self.action_keys = Actions.action_space_to_keys(args['robot_action_space'])[0]
+        self.action_keys = Actions.action_space_to_keys(args['bc_args']['action_space'])[0]
         if args['input_type'] == 'depth':
             self.channels = ('depth',)
         elif args['input_type'] == 'rgbd':

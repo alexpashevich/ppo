@@ -7,7 +7,6 @@ import pickle as pkl
 from shutil import copyfile
 from io import BytesIO
 
-from ppo.tools.misc import load_from_checkpoint
 from ppo.algo.ppo import PPO
 from ppo.parts.model import MasterPolicy
 from ppo.parts.storage import RolloutStorage
@@ -17,14 +16,13 @@ from ppo.tools import stats
 from ppo.tools import misc
 
 
-def create_policy(args, envs, device, action_space, logdir):
-    policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
-    if args.checkpoint_path:
-        import pudb; pudb.set_trace()
-        policy.statistics = load_from_checkpoint(policy, args.checkpoint_path, device)
-        checkpoint_dir = os.path.dirname(args.checkpoint_path)
-        if os.path.exists(os.path.join(checkpoint_dir, 'info.json')):
-            copyfile(os.path.join(checkpoint_dir, 'info.json'), os.path.join(logdir, 'info.json'))
+def create_policy(args, envs, device, action_space, logdir, bc_state_dict):
+    policy = MasterPolicy(
+        envs.observation_space.shape,
+        action_space,
+        **vars(args))
+    if bc_state_dict:
+        misc.load_from_state_dict(bc_state_dict, policy)
     return policy
 
 

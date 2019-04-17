@@ -14,13 +14,13 @@ class Flatten(nn.Module):
 
 
 class Policy(nn.Module):
-    def __init__(self, obs_shape, action_space, base_kwargs=None):
+    def __init__(self, obs_shape, action_space, **base_kwargs):
         super(Policy, self).__init__()
         if base_kwargs is None:
             base_kwargs = {}
 
         if len(obs_shape) == 3:
-            self.base = ResnetBase(obs_shape[0], **base_kwargs)
+            self.base = ResnetBase(**base_kwargs)
             # set the eval mode so the behavior of the skills is the same as in BC training
             self.base.resnet.eval()
         elif len(obs_shape) == 1:
@@ -90,10 +90,10 @@ class Policy(nn.Module):
 
 
 class MasterPolicy(Policy):
-    def __init__(self, obs_shape, action_space, base_kwargs=None):
-        self.action_keys = Actions.action_space_to_keys(base_kwargs['robot_action_space'])[0]
+    def __init__(self, obs_shape, action_space, **resnet_args):
+        self.action_keys = Actions.action_space_to_keys(resnet_args['bc_args']['action_space'])[0]
         self.statistics = None
-        super(MasterPolicy, self).__init__(obs_shape, action_space, base_kwargs)
+        super(MasterPolicy, self).__init__(obs_shape, action_space, **resnet_args)
 
     def get_worker_action(self, master_action, obs_dict):
         obs_tensor, env_idxs = misc.dict_to_tensor(obs_dict)
@@ -221,42 +221,33 @@ class MLPBase(NNBase):
 class ResnetBase(NNBase):
     def __init__(
             self,
-            num_inputs,
             num_skills=4,
-            dim_skill_action=4,
-            num_skill_action_pred=1,
             recurrent_policy=False,  # is not supported
             hidden_size=64,
-            cnn_output_features=512,
             action_memory=0,
-            archi='resnet18',
-            mode='features',
+            bc_args=None,
             **unused_kwargs):
         super(ResnetBase, self).__init__(recurrent_policy, hidden_size, hidden_size)
 
-        self.dim_skill_action = dim_skill_action
+        self.dim_action = bc_args['dim_action'] + 1
         self.num_skills = num_skills
-        # self.num_skill_action_pred = num_skill_action_pred
-        # num_outputs_resnet = self.num_skills * dim_skill_action * num_skill_action_pred
-        # if 'use_direct_actions' in kwargs and kwargs['use_direct_actions']:
-        #     num_outputs_resnet = dim_skill_action
         self.resnet = resnet.make_resnet(
-            archi=archi,
-            mode=mode,
-            input_dim=num_inputs)
+            archi=bc_args['archi'],
+            mode=bc_args['mode'],
+            input_dim=bc_args['input_dim'])
         init_ = lambda m: misc.init(m,
             nn.init.orthogonal_,
             lambda x: nn.init.constant_(x, 0))
 
         self.actor = nn.Sequential(
-            init_(nn.Linear(cnn_output_features + action_memory, hidden_size)),
+            init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
         )
 
         self.critic = nn.Sequential(
-            init_(nn.Linear(cnn_output_features + action_memory, hidden_size)),
+            init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
@@ -268,10 +259,10 @@ class ResnetBase(NNBase):
 
         self.critic_linear = init_(nn.Linear(hidden_size, 1))
 
-        skills_fc_sizes = [cnn_output_features,
+        skills_fc_sizes = [bc_args['features_dim'],
                            hidden_size,
                            hidden_size,
-                           dim_skill_action*num_skill_action_pred]
+                           self.dim_action*bc_args['steps_action']]
         self.skills = []
         for skill in range(num_skills):
             skill_layers = []
@@ -307,6 +298,6 @@ class ResnetBase(NNBase):
             skill_actions = []
             assert len(master_action) == len(features)
             for skill_id, feature in zip(master_action, features):
-                skill_action = self.skills[skill_id](feature)[:self.dim_skill_action]
+                skill_action = self.skills[skill_id](feature)[:self.dim_action]
                 skill_actions.append(skill_action)
             return torch.stack(skill_actions)

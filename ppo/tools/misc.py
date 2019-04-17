@@ -75,14 +75,33 @@ def map_state_dict_key(key, num_skills):
     return key_new
 
 
-def load_from_checkpoint(policy, path, device):
-    if device.type == 'cpu':
-        loaded_dict = torch.load(path, map_location=lambda storage, loc: storage)
+def load_bc_checkpoint(args, device):
+    if args.checkpoint_path:
+        if device.type == 'cpu':
+            loaded_dict = torch.load(args.checkpoint_path, map_location=lambda storage, loc: storage)
+        else:
+            loaded_dict = torch.load(args.checkpoint_path)
+        args.bc_args = loaded_dict['args']
+        print('loaded the BC checkpoint from {}'.format(args.checkpoint_path))
+        return args, loaded_dict['model'].net.state_dict(), loaded_dict['statistics']
     else:
-        loaded_dict = torch.load(path)
-    import pudb; pudb.set_trace()
-    model = loaded_dict['model']
-    state_dict = model.state_dict()
+        # TODO: add some default args: action_space, smth else???
+        if 'Cam' in args.env_name:
+            default_bc_args = dict(archi='resnet_18',
+                                   mode='features',
+                                   input_dim=3,
+                                   num_frames=3,
+                                   steps_action=4,
+                                   action_space='tool_lin',
+                                   dim_action=4,
+                                   features_dim=512,
+                                   )
+            args.bc_args = default_bc_args
+            print('did not load a BC checkpoint, using default BC args: {}'.format(default_bc_args))
+        return args, None, None
+
+
+def load_from_state_dict(state_dict, policy):
     state_dict_renamed = {}
     for key, value in state_dict.items():
         key_new = map_state_dict_key(key, policy.base.num_skills)
@@ -90,6 +109,7 @@ def load_from_checkpoint(policy, path, device):
 
     keys_difference = set(policy.state_dict().keys()) - set(state_dict_renamed)
     # the strict param is for the critics layers only
+    import pudb; pudb.set_trace()
     assert all(['base.critic' in key for key in keys_difference])
     # policy.load_state_dict(state_dict_renamed, strict=False)
     state_dict = {}
@@ -98,8 +118,6 @@ def load_from_checkpoint(policy, path, device):
         if 'actor' not in key:
             state_dict[key] = state_dict_renamed[key]
     policy.load_state_dict(state_dict, strict=False)
-    print('loaded the BC checkpoint from {}'.format(path))
-    return loaded_dict['statistics']
 
 
 def load_optimizer(optimizer, optimizer_state_dict, device):

@@ -19,6 +19,7 @@ def init_training(args, logdir):
     print('Running the experiments on {}'.format(device))
 
     # try to load from a checkpoint
+    args, bc_state_dict, bc_statistics = misc.load_bc_checkpoint(args, device)
     loaded_dict = misc.try_to_load_model(logdir, device)
     if loaded_dict:
         args = loaded_dict['args']
@@ -34,9 +35,11 @@ def init_training(args, logdir):
         policy = loaded_dict['policy']
         start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
     else:
-        policy = utils.create_policy(args, envs_train, device, action_space, logdir)
+        policy = utils.create_policy(args, envs_train, device, action_space, logdir, bc_state_dict)
         start_step, start_epoch = 0, 0
     policy.to(device)
+    # TODO: move bc_statisitcs in the else condition and check that in if statistics are not None
+    policy.statistics = bc_statistics
 
     # create the PPO algo
     agent = utils.create_agent(args, policy)
@@ -56,7 +59,7 @@ def main():
     args, device, all_envs, policy, start_epoch, start_step, agent, action_space = init_training(
         args, logdir)
     envs_train, envs_eval = all_envs
-    action_space_skills = Box(-np.inf, np.inf, (args.dim_skill_action,), dtype=np.float)
+    action_space_skills = Box(-np.inf, np.inf, (args.bc_args['dim_action'],), dtype=np.float)
     rollouts, obs = utils.init_rollout_storage(
         args, envs_train, policy, action_space, action_space_skills, device)
 

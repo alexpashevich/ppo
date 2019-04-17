@@ -36,7 +36,7 @@ class DaskEnv:
         assert self.batch_size <= self.num_processes
         self.device = str(bc_misc.get_device(config.device))
         self.observation_type = config.input_type
-        self.num_frames_stacked = config.num_frames_stacked
+        self.num_frames_stacked = 3
         self.compress_frames = config.compress_frames
 
     def _init_dask(self, config):
