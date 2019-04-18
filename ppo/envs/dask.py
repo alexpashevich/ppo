@@ -30,7 +30,7 @@ class DaskEnv:
         self.num_processes = config.num_processes
         self.batch_size = config.dask_batch_size
         assert self.batch_size <= self.num_processes
-        self.device = str(bc_misc.get_device(config.device))
+        self.device = bc_misc.get_device(config.device)
         self.observation_type = config.input_type
         self.num_frames_stacked = 3
 

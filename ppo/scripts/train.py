@@ -16,7 +16,7 @@ from ppo.scripts.arguments import get_args
 
 def init_training(args, logdir):
     # get the device before loading to enable the GPU/CPU transfer
-    device = bc_misc.get_device(args.device)
+    device = torch.device(bc_misc.get_device(args.device))
     print('Running the experiments on {}'.format(device))
 
     # try to load from a checkpoint
