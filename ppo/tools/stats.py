@@ -26,8 +26,8 @@ def init(num_processes, eval=False):
     return stats_global, stats_local
 
 
-def update(stats_g, stats_l, reward, done, infos, need_master_action, args, overwrite_terminated=True):
-    stats_l['return'] += reward[:, 0].numpy()
+def update(stats_g, stats_l, reward, done, infos, args, overwrite_terminated=True):
+    stats_l['return'] += reward[:, 0].cpu().numpy()
     if not overwrite_terminated:
         # for evaluation we want to run N envs and wait the N results
         # we do not want a short episode (e.g. two fails) to replace a longer one (e.g. a success)

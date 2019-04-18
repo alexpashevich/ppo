@@ -7,8 +7,6 @@ import numpy as np
 
 from tensorboardX import SummaryWriter
 
-from ppo.tools.misc import get_vec_normalize
-
 train_writer, eval_writer = None, None
 
 
@@ -67,8 +65,8 @@ def save_model(save_path, policy, optimizer, epoch, env_steps, device, envs, arg
     save_model = dict(
         policy=policy,
         optimizer_state_dict=optimizer.state_dict(),
-        ob_rms=getattr(get_vec_normalize(envs), 'ob_rms', None),
-        start_epoch=epoch,
+        obs_running_stats=envs.obs_running_stats,
+        start_epoch=epoch+1,
         start_step=env_steps,
         args=args)
 
