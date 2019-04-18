@@ -1,4 +1,5 @@
 import gym
+import mime
 import torch
 import itertools
 import numpy as np
@@ -43,7 +44,6 @@ class MimeEnv:
             raise NotImplementedError('Unknown input type = {}'.format(args['input_type']))
         self.augmentation = args['augmentation']
         self.hrlbc_setup = args['hrlbc_setup']
-        self.compress_frames = args['compress_frames']  # TODO: implement it
         num_skills = args['num_skills']
         # timescales for skills (hrlbc setup only)
         self.skills_timescales = args['timescale']

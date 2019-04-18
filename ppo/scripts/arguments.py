@@ -35,8 +35,6 @@ def get_args():
     # BC stuff
     parser.add_argument('--augmentation', type=str, default='',
                         help='which data augmentation to use for the frames')
-    parser.add_argument('--no-compress-frames', action='store_true', default=False,
-                        help='whether to compress the frames from mime')
     # RL algorithm hyperparameters
     parser.add_argument('--lr', type=float, default=7e-4,
                         help='learning rate (default: 7e-4)')
@@ -96,24 +94,9 @@ def get_args():
                         help='log interval, one log per n updates (default: 10)')
     parser.add_argument('--save-interval', type=int, default=2,
                         help='save interval, one save per n updates (default: 100)')
-    # BC skills settings. If a checkpoint is provided, the values will be overwriten
-    # WARNING: use those variables only for debug purposes (e.g. if you don't have a checkpoint)
-    # parser.add_argument('--archi', type=str, default='resnet18_featbranch',
-    #                     help='which architecture to use (from bc.net.architectures.resnet)')
-    # parser.add_argument('--dim-skill-action', type=int, default=8,
-    #                     help='dimensionality of a skill action')
-    # parser.add_argument('--num-skill-action-pred', type=int, default=4,
-    #                     help='number of future actions predicted')
-    # parser.add_argument('--num-frames-stacked', type=int, default=3,
-    #                     help='number of frames that the network receives as the input')
-    # parser.add_argument('--action-space', type=str, default='tool_lin_ori',
-    #                     help='the mime action space: can be tool or joints')
-    # parser.add_argument('--cnn-output-features', type=int, default=512,
-    #                     help='the number of resnet features')
 
     args = parser.parse_args()
     args.recurrent_policy = False  # turn off recurrent policies support
     args.skip_unused_obs = not args.no_skip_unused_obs  # only works for the scripted setup
-    args.compress_frames = not args.no_compress_frames  # only works for the Cam envs
 
     return args

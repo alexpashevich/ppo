@@ -33,7 +33,6 @@ class DaskEnv:
         self.device = str(bc_misc.get_device(config.device))
         self.observation_type = config.input_type
         self.num_frames_stacked = 3
-        self.compress_frames = config.compress_frames
 
     def _init_dask(self, config):
         cluster = LocalCluster(n_workers=self.num_processes)
@@ -67,9 +66,9 @@ class DaskEnv:
                     action_dict[action_key] = action_value.cpu().numpy()
             self.pub_out[env_idx].put({'function': 'step',
                                        'action': action_dict})
-        return self.get_obs_batch(self.batch_size)
+        return self._get_obs_batch(self.batch_size)
 
-    def get_obs_batch(self, batch_size):
+    def _get_obs_batch(self, batch_size):
         obs_dict, reward_dict, done_dict, info_dict = {}, {}, {}, {}
         count_envs = 0
         for env_dict, env_idx in self.sub_in:
@@ -82,7 +81,7 @@ class DaskEnv:
             count_envs += 1
             if count_envs == batch_size:
                 break
-        return self.normalize_obs(obs_dict), reward_dict, done_dict, info_dict
+        return self._normalize_obs(obs_dict), reward_dict, done_dict, info_dict
 
     def reset(self):
         count_envs = 0
@@ -95,9 +94,9 @@ class DaskEnv:
             count_envs += 1
             if count_envs == self.num_processes:
                 break
-        return self.normalize_obs(obs_dict)
+        return self._normalize_obs(obs_dict)
 
-    def normalize_obs(self, obs_dict):
+    def _normalize_obs(self, obs_dict):
         if self.obs_running_stats:
             obs_numpy_list = []
             for env_idx, obs in sorted(obs_dict.items()):
