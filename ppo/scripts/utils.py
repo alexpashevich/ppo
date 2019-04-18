@@ -140,21 +140,12 @@ def get_policy_values(
         return value, action, log_prob, recurrent_states
 
 
-# prev_action_master = None
-# prev_need_master_action = None
 def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=False):
-    # # TODO: remove this after debug
-    # global prev_action_master, prev_need_master_action
-    # if prev_need_master_action is not None:
-    #     for env_idx, needed_action_before in enumerate(prev_need_master_action):
-    #         if not needed_action_before:
-    #             assert action_master[env_idx] == prev_action_master[env_idx]
-
-    num_envs = envs.num_processes
     # we expect the action_master to have an action for each env
     # DaskEnv is taking care of using only those of them which are necessary
-    assert len(action_master.keys()) == num_envs
-    info_master, done_master = np.array([None] * num_envs), np.array([False] * num_envs)
+    assert len(action_master.keys()) == envs.num_processes
+    info_master = np.array([None] * envs.num_processes)
+    done_master = np.array([False] * envs.num_processes)
     while True:
         if hrlbc_setup:
             # get the skill action
@@ -167,17 +158,12 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
                 action_skill_dict[env_idx] = {'skill': env_action_master}
         obs, reward_envs, done_envs, info_envs = envs.step(action_skill_dict)
         need_master_action = update_master_variables(
-            num_envs=num_envs,
+            num_envs=envs.num_processes,
             env_idxs=obs.keys(),
             envs_dict={'reward': reward_envs, 'done': done_envs, 'info': info_envs},
             master_dict={'reward': reward_master, 'done': done_master, 'info': info_master})
         if np.any(need_master_action):
             break
-
-    # # TODO: remove this after debug
-    # from copy import deepcopy
-    # prev_action_master = deepcopy(action_master)
-    # prev_need_master_action = deepcopy(need_master_action)
 
     return (obs, reward_master, done_master, info_master, need_master_action)
 

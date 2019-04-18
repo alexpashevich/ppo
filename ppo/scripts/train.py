@@ -20,10 +20,11 @@ def init_training(args, logdir):
     print('Running the experiments on {}'.format(device))
 
     # try to load from a checkpoint
-    args, bc_model, bc_statistics = load.bc_checkpoint(args, device)
     loaded_dict = load.ppo_model(logdir, device)
     if loaded_dict:
         args = loaded_dict['args']
+    else:
+        args, bc_model, bc_statistics = load.bc_checkpoint(args, device)
     misc.seed_exp(args)
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 
@@ -37,12 +38,11 @@ def init_training(args, logdir):
         start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
     else:
         policy = utils.create_policy(args, envs_train, action_space)
+        policy.statistics = bc_statistics
         if bc_model:
             load.policy_from_bc_model(policy, bc_model)
         start_step, start_epoch = 0, 0
     policy.to(device)
-    # TODO: move bc_statisitcs in the else condition and check that in if statistics are not None
-    policy.statistics = bc_statistics
 
     # create the PPO algo
     agent = utils.create_agent(args, policy)
@@ -118,7 +118,6 @@ def main():
             reward[np.where(done)] = 0
             env_steps += sum([info['length_after_new_action']
                               for info in np.array(infos)[np.where(need_master_action)[0]]])
-            print('Current framerate = {}'.format(env_steps/(time.time()-start)))
 
         # master policy training
         with torch.no_grad():

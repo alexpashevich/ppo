@@ -66,7 +66,7 @@ def save_model(save_path, policy, optimizer, epoch, env_steps, device, envs, arg
         policy=policy,
         optimizer_state_dict=optimizer.state_dict(),
         obs_running_stats=envs.obs_running_stats,
-        start_epoch=epoch,
+        start_epoch=epoch+1,
         start_step=env_steps,
         args=args)
 
