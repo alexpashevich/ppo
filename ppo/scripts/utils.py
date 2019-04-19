@@ -162,7 +162,7 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
         dt_stack['get_action'].append(time.time()-t0)
         t0 = time.time()
         obs, reward_envs, done_envs, info_envs = envs.step(action_skill_dict)
-        dt_stack['env_step'].append(time.time()-t0)
+        dt_stack['env_step'].append((time.time()-t0)/envs.dask_batch_size)
         t0 = time.time()
         need_master_action = update_master_variables(
             num_envs=envs.num_processes,
