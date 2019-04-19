@@ -2,6 +2,7 @@ import os
 import time
 import torch
 import numpy as np
+from tqdm import tqdm
 from gym.spaces import Discrete, Box
 
 import bc.utils.misc as bc_misc
@@ -83,6 +84,7 @@ def main():
     while True:
         print('Starting epoch {}'.format(epoch))
         master_steps_done = 0
+        pbar = tqdm(total=args.num_master_steps_per_update * args.num_processes)
         while master_steps_done < args.num_master_steps_per_update * args.num_processes:
             value, action, action_log_prob, recurrent_hidden_states = utils.get_policy_values(
                 policy,
@@ -98,6 +100,7 @@ def main():
             obs, reward, done, infos, need_master_action = utils.do_master_step(
                 action, rollouts.get_last(rollouts.obs), reward, policy, envs_train, args.hrlbc_setup)
             master_steps_done += np.sum(need_master_action)
+            pbar.update(np.sum(need_master_action))
 
             stats_global, stats_local = stats.update(
                 stats_global, stats_local, reward, done, infos, args)
@@ -118,6 +121,7 @@ def main():
             reward[np.where(done)] = 0
             env_steps += sum([info['length_after_new_action']
                               for info in np.array(infos)[np.where(need_master_action)[0]]])
+        pbar.close()
 
         # master policy training
         with torch.no_grad():
