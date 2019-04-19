@@ -25,7 +25,7 @@ def parse_args():
         default='dask',
         help='Type of multiprocessing: dask or ppo')
     parser.add_argument('-np', '--num-processes', type=int, default=8)
-    parser.add_argument('-nc', '--num-channels', type=int, default=1)
+    parser.add_argument('-nc', '--num-channels', type=int, default=3)
     parser.add_argument('-bs', '--dask-batch-size', type=int, default=8)
     parser.add_argument('-d', '--device', type=str, default='cuda')
     parser.add_argument(
@@ -89,7 +89,7 @@ def init_policy(args):
     policy = FlatPolicy(
         archi='resnet_18_narrow32',
         mode='flat',
-        num_frames=1,
+        num_frames=args.num_channels,
         action_space='tool_lin_ori',
         steps_action=1)
     device = torch.device('{}:0'.format(args.device))
@@ -116,12 +116,13 @@ def run_envs(args):
         args.input_type = 'depth'
         args.max_length = None
         args.render = False
+        # args.render = True
         args.augmentation = ''
         args.hrlbc_setup = True
         args.num_skills = 1
-        args.timescale = 1
+        args.timescale = 50
         args.seed = 1
-        args.bc_args = dict(num_frames=1, action_space='tool_lin_ori')
+        args.bc_args = dict(num_frames=args.num_channels, action_space='tool_lin_ori')
         envs = DaskEnv(args)
 
     policy, device = init_policy(args)
@@ -174,8 +175,10 @@ def run_envs(args):
                 actions = policy(obs)
                 actions, env_idxs = tensor_to_dict(actions, env_idxs)
                 for env_idx, env_action in actions.items():
-                    env_action = Actions.tensor_to_dict(
-                        env_action, action_keys, None)
+                    # env_action = {'linear_velocity': np.array([-0.01, -0.01, -0.01]),
+                    #               'angular_velocity': np.array([-0.01, -0.01, -0.01]),
+                    #               'skill': [0]}
+                    env_action = Actions.tensor_to_dict(env_action, action_keys, None)
                     env_action['skill'] = [0]
                     actions[env_idx] = env_action
             t0 = time.time()

@@ -97,6 +97,7 @@ class DaskEnv:
         return self._normalize_obs(obs_dict)
 
     def _normalize_obs(self, obs_dict):
+        return obs_dict
         if self.obs_running_stats:
             obs_numpy_list = []
             for env_idx, obs in sorted(obs_dict.items()):

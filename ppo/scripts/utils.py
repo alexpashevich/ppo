@@ -147,7 +147,7 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
     assert len(action_master.keys()) == envs.num_processes
     info_master = np.array([None] * envs.num_processes)
     done_master = np.array([False] * envs.num_processes)
-    dt_stack = {'env_step':[], 'get_action': [], 'update_master': []}
+    dt_stack = {'env_step': [], 'get_action': [], 'update_master': []}
     while True:
         t0 = time.time()
         if hrlbc_setup:
