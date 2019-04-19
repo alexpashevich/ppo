@@ -18,13 +18,21 @@ from ppo.tools import misc
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', '--type', type=str, default='dask',
-                        help='Type of multiprocessing: dask or ppo')
+    parser.add_argument(
+        '-t',
+        '--type',
+        type=str,
+        default='dask',
+        help='Type of multiprocessing: dask or ppo')
     parser.add_argument('-np', '--num-processes', type=int, default=8)
     parser.add_argument('-nc', '--num-channels', type=int, default=1)
     parser.add_argument('-bs', '--dask-batch-size', type=int, default=8)
     parser.add_argument('-d', '--device', type=str, default='cuda')
-    parser.add_argument('-e', '--env-name', type=str, default='UR5-Paris-Aug-SaladRandCamEnv-v0')
+    parser.add_argument(
+        '-e',
+        '--env-name',
+        type=str,
+        default='UR5-Paris-Aug-SaladRandCamEnv-v0')
     args = parser.parse_args()
     assert args.type in ('dask', 'ppo_joblib', 'ppo_dask')
     # assert args.num_processes == args.batch_size
@@ -68,8 +76,11 @@ def init_dask(args):
     cluster = LocalCluster(n_workers=args.num_processes)
     client = Client(cluster)
     # always define publishers first then subscribers
-    pubs_action = [Pub('env{}_action'.format(seed)) for seed in range(args.num_processes)]
-    futures = client.map(run_env, [args.env_name]*args.num_processes, range(args.num_processes))
+    pubs_action = [
+        Pub('env{}_action'.format(seed)) for seed in range(args.num_processes)
+    ]
+    futures = client.map(run_env, [args.env_name] * args.num_processes,
+                         range(args.num_processes))
     sub_obs = Sub('observations')
     return pubs_action, sub_obs
 
@@ -92,7 +103,14 @@ def run_envs(args):
     elif args.type == 'ppo_joblib':
         from ppo.tools.envs import make_vec_envs
         envs = make_vec_envs(
-            args.env_name, 0, args.num_processes, None, False, args.device, False, env_config=args)
+            args.env_name,
+            0,
+            args.num_processes,
+            None,
+            False,
+            args.device,
+            False,
+            env_config=args)
     elif args.type == 'ppo_dask':
         from ppo.envs.dask import DaskEnv
         args.input_type = 'depth'
@@ -111,7 +129,8 @@ def run_envs(args):
 
     if args.type == 'dask':
         t0 = time.time()
-        stack_obs = torch.zeros((args.dask_batch_size, args.num_channels, 224, 224))
+        stack_obs = torch.zeros((args.dask_batch_size, args.num_channels, 224,
+                                 224))
         stack_obs = stack_obs.to(device)
         stack_seed = np.zeros(args.dask_batch_size, dtype=int)
         count_obs, count_batch = 0, 0
@@ -123,14 +142,16 @@ def run_envs(args):
                 with torch.no_grad():
                     actions = policy(stack_obs)
                 for seed, action in zip(stack_seed, actions):
-                    dict_action = {'linear_velocity': action[:3].cpu().numpy(),
-                                   'angular_velocity': action[3:6].cpu().numpy(),
-                                   'gripper_velocity': 4}
+                    dict_action = {
+                        'linear_velocity': action[:3].cpu().numpy(),
+                        'angular_velocity': action[3:6].cpu().numpy(),
+                        'gripper_velocity': 4
+                    }
                     pubs_action[seed].put(dict_action)
                 stack_obs = torch.zeros_like(stack_obs)
                 count_obs = 0
                 count_batch += 1
-                dt_stack.append((time.time()-t0)/args.dask_batch_size)
+                dt_stack.append((time.time() - t0) / args.dask_batch_size)
                 print('dt', np.mean(dt_stack))
                 t0 = time.time()
     elif args.type == 'ppo_joblib':
@@ -140,7 +161,7 @@ def run_envs(args):
             with torch.no_grad():
                 actions = policy(obs)
             obs, reward, done, infos = envs.step(actions)
-            dt_stack.append((time.time()-t0)/args.num_processes)
+            dt_stack.append((time.time() - t0) / args.num_processes)
             print('dt', np.mean(dtstack))
             t0 = time.time()
     elif args.type == 'ppo_dask':
@@ -153,12 +174,13 @@ def run_envs(args):
                 actions = policy(obs)
                 actions, env_idxs = tensor_to_dict(actions, env_idxs)
                 for env_idx, env_action in actions.items():
-                    env_action = Actions.tensor_to_dict(env_action, action_keys, None)
+                    env_action = Actions.tensor_to_dict(
+                        env_action, action_keys, None)
                     env_action['skill'] = [0]
                     actions[env_idx] = env_action
             t0 = time.time()
             obs, reward, done, infos = envs.step(actions)
-            dt_stack.append((time.time()-t0)/args.dask_batch_size)
+            dt_stack.append((time.time() - t0) / args.dask_batch_size)
             print('dt', np.mean(dt_stack), dt_stack[-5:])
 
 
