@@ -70,7 +70,6 @@ def evaluate(policy, args_train, device, envs_train, envs_eval):
     # make the evaluation horizon longer (if eval_max_length_factor > 1)
     args.max_length = int(args.max_length * args.eval_max_length_factor)
     args.dask_batch_size = int(args.num_eval_episodes / 2)
-    args.dask_batch_size = args.num_eval_episodes
     num_processes = args.num_eval_episodes
     args.num_processes = num_processes
     args.seed += num_processes
