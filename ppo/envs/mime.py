@@ -4,7 +4,7 @@ import torch
 import itertools
 import numpy as np
 
-from collections import OrderedDict, deque
+from collections import OrderedDict
 from dask.distributed import Pub, Sub
 
 from bc.dataset import Frames, Actions
@@ -19,7 +19,6 @@ class MimeEnv:
         self.env = self.create_env(args['seed'])
         self.pub_out = Pub('observations')
         self.sub_in = Sub('env{}_input'.format(int(self.env_idx)))
-        self.frames_stack = deque(maxlen=args['bc_args']['num_frames'])
         self.step_counter = 0
         self.reset_env(reset_mime=False)
 
@@ -91,7 +90,6 @@ class MimeEnv:
     def reset_env(self, reset_mime=True):
         self.step_counter = 0
         self.step_counter_after_new_action = 0
-        self.frames_stack.clear()
         self.prev_script = None
         self.need_master_action = True
         if reset_mime:
@@ -135,11 +133,8 @@ class MimeEnv:
                 for im_key in im_keys:
                     if im_key in key:
                         obs_im[im_key] = obs_dict[key]
-            self.frames_stack.append(obs_im)
-            while len(self.frames_stack) < self.frames_stack.maxlen:
-                self.frames_stack.append(obs_im)
             obs_tensor = Frames.dic_to_tensor(
-                self.frames_stack,
+                [obs_im],
                 self.channels,
                 Frames.sum_channels(self.channels),
                 augmentation_str=self.augmentation)

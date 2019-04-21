@@ -4,6 +4,7 @@ import numpy as np
 from dask.distributed import Client, LocalCluster, Pub, Sub
 from baselines.common.running_mean_std import RunningMeanStd
 from gym.spaces import Box
+from collections import deque
 
 import bc.utils.misc as bc_misc
 from ppo.envs.mime import MimeEnv
@@ -15,14 +16,18 @@ class DaskEnv:
     def __init__(self, config):
         assert any([env_prefix in config.env_name for env_prefix in SUPPORTED_MIME_ENVS])
         self._read_config(config)
-        self._init_dask(config)
+        self.frames_stack = [deque(maxlen=self.num_frames) for _ in range(self.num_processes)]
         self.action_sent_flags = np.zeros(self.num_processes)
         if 'Cam' not in self.env_name:
             self.obs_running_stats = RunningMeanStd(shape=self.observation_space.shape)
         else:
             self.obs_running_stats = None
-        print('Created DaskEnv with {} processes and batch size of {}'.format(
+        print('Will create DaskEnv with {} processes and batch size of {}'.format(
             self.num_processes, self.batch_size))
+
+        # lazy dask initialization
+        self._initialized = False
+        self._config = config
 
     def _read_config(self, config):
         # parsing the environment part of the config
@@ -32,7 +37,7 @@ class DaskEnv:
         assert self.batch_size <= self.num_processes
         self.device = bc_misc.get_device(config.device)
         self.observation_type = config.input_type
-        self.num_frames_stacked = 3
+        self.num_frames = config.bc_args['num_frames']
 
     def _init_dask(self, config):
         cluster = LocalCluster(n_workers=self.num_processes)
@@ -77,13 +82,18 @@ class DaskEnv:
             obs_dict[env_idx] = env_dict['observation'].to(torch.device(self.device))
             reward_dict[env_idx] = env_dict['reward']
             done_dict[env_idx] = env_dict['done']
+            if env_dict['done']:
+                self.frames_stack[env_idx].clear()
             info_dict[env_idx] = env_dict['info']
             count_envs += 1
             if count_envs == batch_size:
                 break
-        return self._normalize_obs(obs_dict), reward_dict, done_dict, info_dict
+        return self._stack_obs(obs_dict), reward_dict, done_dict, info_dict
 
     def reset(self):
+        if not self._initialized:
+            self._init_dask(self._config)
+            self._initialized = True
         count_envs = 0
         for env_idx in range(self.num_processes):
             assert self.action_sent_flags[env_idx] == 0
@@ -91,13 +101,22 @@ class DaskEnv:
         obs_dict = {}
         for env_dict, env_idx in self.sub_in:
             obs_dict[env_idx] = env_dict['observation'].to(torch.device(self.device))
+            self.frames_stack[env_idx].clear()
             count_envs += 1
             if count_envs == self.num_processes:
                 break
+        return self._stack_obs(obs_dict)
+
+    def _stack_obs(self, obs_dict):
+        for env_idx, obs_tensor in obs_dict.items():
+            frames_stack = self.frames_stack[env_idx]
+            frames_stack.append(obs_tensor)
+            while len(frames_stack) < self.num_frames:
+                frames_stack.append(obs_tensor)
+            obs_dict[env_idx] = torch.cat(tuple(frames_stack))
         return self._normalize_obs(obs_dict)
 
     def _normalize_obs(self, obs_dict):
-        return obs_dict
         if self.obs_running_stats:
             obs_numpy_list = []
             for env_idx, obs in sorted(obs_dict.items()):
@@ -116,9 +135,9 @@ class DaskEnv:
     def observation_space(self):
         if 'Cam' in self.env_name:
             if self.observation_type == 'depth':
-                observation_dim = 1 * self.num_frames_stacked
+                observation_dim = 1 * self.num_frames
             elif self.observation_type == 'rgbd':
-                observation_dim = 4 * self.num_frames_stacked
+                observation_dim = 4 * self.num_frames
             else:
                 raise NotImplementedError
             return Box(-np.inf, np.inf, (observation_dim, 224, 224), dtype=np.float)
