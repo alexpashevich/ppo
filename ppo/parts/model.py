@@ -4,7 +4,7 @@ import torch.nn as nn
 from ppo.parts.distributions import Categorical, DiagGaussian
 import ppo.tools.misc as misc
 
-from bc.net.architectures import resnet
+from bc.net.architectures import utils as bc_utils
 from bc.dataset import Actions
 
 
@@ -232,7 +232,7 @@ class ResnetBase(NNBase):
         self.dim_action = bc_args['dim_action'] + 1
         self.num_skills = num_skills
         self.action_memory = action_memory
-        self.resnet = resnet.make_resnet(
+        self.resnet = bc_utils.make_resnet(
             archi=bc_args['archi'],
             mode='features',
             input_dim=bc_args['input_dim'])
