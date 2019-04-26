@@ -75,6 +75,9 @@ def get_args():
     # BC skills
     parser.add_argument('--checkpoint-path', type=str, default=None,
                         help='if specified, load the networks weights from the file')
+    # full state stuff
+    parser.add_argument('--mime-action-space', type=str, default=None,
+                        help='number of last actions to pass to the agent')
     # evaluation
     parser.add_argument('--num-eval-episodes', type=int, default=8,
                         help='number of episodes to use in evaluation')

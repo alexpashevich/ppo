@@ -1,6 +1,8 @@
 import os
 import torch
 
+from bc.dataset import Actions
+
 
 def ppo_model(logdir, device):
     loaded_tuple = None
@@ -44,17 +46,25 @@ def bc_checkpoint(args, device):
         return args, loaded_dict['model'], statistics
     else:
         if 'Cam' in args.env_name:
-            default_bc_args = dict(archi='resnet_18',
-                                   mode='features',
-                                   input_dim=3,
-                                   num_frames=3,
-                                   steps_action=4,
-                                   action_space='tool_lin',
-                                   dim_action=4,
-                                   features_dim=512,
-                                   )
-            args.bc_args = default_bc_args
+            default_bc_args = dict(
+                archi='resnet_18',
+                mode='features',
+                input_dim=3,
+                num_frames=3,
+                steps_action=4,
+                action_space='tool_lin',
+                dim_action=4,
+                features_dim=512)
             print('did not load a BC checkpoint, using default BC args: {}'.format(default_bc_args))
+        else:
+            assert args.mime_action_space is not None
+            default_bc_args = dict(
+                action_space=args.mime_action_space,
+                dim_action=Actions.action_space_to_keys(args.mime_action_space)[1],
+                num_frames=1)
+            print('Using a full state env with BC args: {}'.format(default_bc_args))
+        args.bc_args = default_bc_args
+
         return args, None, None
 
 
