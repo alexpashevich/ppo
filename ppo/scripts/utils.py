@@ -96,7 +96,7 @@ def evaluate(policy, args_train, device, envs_train, envs_eval):
             policy_values_cache = get_policy_values(
                 policy,
                 obs,
-                memory_actions,
+                {key: memory_actions[key] for key in obs.keys()},
                 recurrent_hidden_states,
                 masks,
                 policy_values_cache,
@@ -177,7 +177,7 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
             str_dt += '{} {} '.format(key, np.mean(value))
         # print(str_dt)
         dt_stack['total'].append((time.time() - t_start) / envs.batch_size)
-        print('dt', np.mean(dt_stack['total']))
+        # print('dt', np.mean(dt_stack['total']))
 
     return (obs, reward_master, done_master, info_master, need_master_action)
 
@@ -206,7 +206,7 @@ def update_memory_actions(memory_actions, action, need_master_action, done):
         memory_actions[env_idx][-1] = action[env_idx][0]
     for env_idx, done_ in enumerate(done):
         if done_:
-            memory_actions[env_idx] = -1.
+            memory_actions[env_idx][:] = -1.
     return memory_actions
 
 

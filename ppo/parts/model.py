@@ -270,7 +270,7 @@ class ResnetBase(NNBase):
             for i in range(len(skills_fc_sizes) - 1):
                 skill_layers.append(nn.Linear(skills_fc_sizes[i], skills_fc_sizes[i + 1]))
                 if i < len(skills_fc_sizes) - 2:
-                    skill_layers.append(nn.Tanh())
+                    skill_layers.append(nn.ReLU())
             skill_layers = nn.Sequential(*skill_layers)
             self.skills.append(skill_layers)
         self.skills = nn.ModuleList(self.skills)
