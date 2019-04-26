@@ -94,6 +94,16 @@ class DaskEnv:
         if not self._initialized:
             self._init_dask(self._config)
             self._initialized = True
+        if sum(self.action_sent_flags) > 0:
+            # an early reset was called, need to collect the step observations first
+            count_envs = 0
+            count_obs = sum(self.action_sent_flags)
+            for unused_env_dict, env_idx in self.sub_in:
+                assert self.action_sent_flags[env_idx] == 1
+                self.action_sent_flags[env_idx] = 0
+                count_envs += 1
+                if count_envs == count_obs:
+                    break
         count_envs = 0
         for env_idx in range(self.num_processes):
             assert self.action_sent_flags[env_idx] == 0
