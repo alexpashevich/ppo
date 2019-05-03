@@ -18,7 +18,7 @@ def get_args():
                         help='whether to stop the execution for manual commands')
     parser.add_argument('--num-processes', type=int, default=16,
                         help='how many training CPU processes to use (default: 16)')
-    parser.add_argument('--dask-batch-size', type=int, default=8,
+    parser.add_argument('--dask-batch-size', type=int, default=None,
                         help='the envs will be stepped using the batch size (default: 8)')
     parser.add_argument('--num-frames', type=int, default=30e7,
                         help='number of frames to train (default: 10e6)')
@@ -99,7 +99,9 @@ def get_args():
                         help='save interval, one save per n updates (default: 100)')
 
     args = parser.parse_args()
+    assert args.algo == 'ppo'
     args.recurrent_policy = False  # turn off recurrent policies support
-    args.skip_unused_obs = not args.no_skip_unused_obs  # only works for the scripted setup
+    if args.dask_batch_size is None:
+        args.dask_batch_size = int(args.num_processes / 2)
 
     return args
