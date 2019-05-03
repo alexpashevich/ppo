@@ -1,7 +1,6 @@
 import torch
 import copy
 import numpy as np
-import time
 
 from ppo.algo.ppo import PPO
 from ppo.parts.model import MasterPolicy
@@ -146,10 +145,7 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
     assert len(action_master.keys()) == envs.num_processes
     info_master = np.array([None] * envs.num_processes)
     done_master = np.array([False] * envs.num_processes)
-    dt_stack = {'env_step': [], 'get_action': [], 'update_master': [], 'total': []}
     while True:
-        t0 = time.time()
-        t_start = time.time()
         if hrlbc_setup:
             # get the skill action
             with torch.no_grad():
@@ -159,25 +155,14 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
             action_skill_dict = {}
             for env_idx, env_action_master in action_master.items():
                 action_skill_dict[env_idx] = {'skill': env_action_master}
-        dt_stack['get_action'].append(time.time()-t0)
-        t0 = time.time()
         obs, reward_envs, done_envs, info_envs = envs.step(action_skill_dict)
-        dt_stack['env_step'].append((time.time()-t0)/envs.batch_size)
-        t0 = time.time()
         need_master_action = update_master_variables(
             num_envs=envs.num_processes,
             env_idxs=obs.keys(),
             envs_dict={'reward': reward_envs, 'done': done_envs, 'info': info_envs},
             master_dict={'reward': reward_master, 'done': done_master, 'info': info_master})
-        dt_stack['update_master'].append(time.time()-t0)
         if np.any(need_master_action):
             break
-        str_dt = ''
-        for key, value in dt_stack.items():
-            str_dt += '{} {} '.format(key, np.mean(value))
-        # print(str_dt)
-        dt_stack['total'].append((time.time() - t_start) / envs.batch_size)
-        # print('dt', np.mean(dt_stack['total']))
 
     return (obs, reward_master, done_master, info_master, need_master_action)
 
@@ -221,4 +206,3 @@ def perform_actions(action_sequence, observation, policy, envs, args):
             master_action, observation, reward, policy, envs,
             args.hrlbc_setup)
         print('reward = {}'.format(reward[:, 0]))
-
