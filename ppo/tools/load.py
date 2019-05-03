@@ -68,8 +68,9 @@ def bc_checkpoint(args, device):
         return args, None, None
 
 
-# TODO: it's dirty, how to change it?
 def _map_state_dict_key(key, num_skills):
+    # TODO: reuse for master layers pretraining?
+    raise NotImplementedError
     # BC training produces names of weights with "module." in the beginning
     if 'fcs' not in key:
         return key.replace('module.', 'base.resnet.')
@@ -91,6 +92,7 @@ def _map_state_dict_key(key, num_skills):
 
 
 def policy_from_bc_model(policy, model):
+    raise NotImplementedError
     state_dict_renamed = {}
     for key, value in model.net.state_dict().items():
         key_new = _map_state_dict_key(key, policy.base.num_skills)
@@ -111,4 +113,3 @@ def optimizer(optimizer, optimizer_state_dict, device):
         for k, v in state.items():
             if isinstance(v, torch.Tensor):
                 state[k] = getattr(v, target_device)()
-

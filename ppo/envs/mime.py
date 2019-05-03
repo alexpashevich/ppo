@@ -133,7 +133,7 @@ class MimeEnv:
                 for im_key in im_keys:
                     if im_key in key:
                         obs_im[im_key] = obs_dict[key]
-            obs_tensor = Frames.dic_to_tensor(
+            obs_tensor = Frames.dict_to_tensor(
                 [obs_im],
                 self.channels,
                 Frames.sum_channels(self.channels),

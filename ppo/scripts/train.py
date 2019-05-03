@@ -38,10 +38,7 @@ def init_training(args, logdir):
         policy = loaded_dict['policy']
         start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
     else:
-        policy = utils.create_policy(args, envs_train, action_space)
-        policy.statistics = bc_statistics
-        if bc_model:
-            load.policy_from_bc_model(policy, bc_model)
+        policy = utils.create_policy(args, envs_train, action_space, bc_model, bc_statistics)
         start_step, start_epoch = 0, 0
     policy.to(device)
 

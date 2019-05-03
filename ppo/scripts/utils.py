@@ -11,10 +11,12 @@ from ppo.tools import stats
 from ppo.tools import misc
 
 
-def create_policy(args, envs, action_space):
+def create_policy(args, envs, action_space, bc_model, bc_statistics):
     policy = MasterPolicy(
         envs.observation_space.shape,
         action_space,
+        bc_model,
+        bc_statistics,
         **vars(args))
     return policy
 
@@ -48,7 +50,7 @@ def create_frozen_skills_check(obs, policy):
         test_tensor = misc.dict_to_tensor(obs)[0]
         test_master = np.random.randint(0, policy.base.num_skills, len(obs))
         policy.base.resnet.eval()
-        features_check = policy.base.resnet(test_tensor)
+        unused_skills, features_check = policy.base.resnet(test_tensor)
         skills_check = policy.base(test_tensor, None, None, None, test_master)
     return test_tensor, test_master, features_check, skills_check
 
@@ -57,7 +59,7 @@ def do_frozen_skills_check(
         policy, test_tensor, test_master, feature_check, skills_check):
     # check if the skills are not changed by the the RL updates
     with torch.no_grad():
-        features_after_upd = policy.base.resnet(test_tensor)
+        unused_skills, features_after_upd = policy.base.resnet(test_tensor)
         skills_after_upd = policy.base(test_tensor, None, None, None, test_master)
     assert (features_after_upd == feature_check).all()
     assert (skills_after_upd == skills_check).all()
