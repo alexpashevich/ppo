@@ -52,6 +52,7 @@ python3 -m ppo.scripts.train --env-name UR5-SimplePourNoDropsEnv-v0\
 ```bash
 python3 -m ppo.scripts.train --env-name UR5-Paris-Aug-SaladEnv-v0\
 --max-length=2000 --num-processes=16 --num-skills=7 --num-mini-batch=8 --num-master-steps-per-update=30\
+--mime-action-space=tool_lin_ori\
 --logdir=$LOGDIR
 ```
 
