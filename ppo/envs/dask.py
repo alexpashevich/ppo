@@ -157,7 +157,7 @@ class DaskEnv:
             # num_cups = self.env.unwrapped.scene._num_cups
             # num_drops = self.env.unwrapped.scene._num_drops
             num_cups = 2
-            num_drops = 2
+            num_drops = 0
             num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
             return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
         elif 'SimplePour' in self.env_name:

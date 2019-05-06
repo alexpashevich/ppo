@@ -7,6 +7,7 @@ The repo will use MiME and BC repos, make sure they are accessible. The only scr
 ```bash
 python3 -m ppo.scripts.train --env-name UR5-Paris-Aug-BowlEnv-v0\
 --max-length=600 --num-processes=8 --num-skills=4 --num-master-steps-per-update=12\
+--mime-action-space=tool_lin\
 --logdir=$LOGDIR
 ```
 *Useful flags*: `--eval-offline` if you do not want the evaluation to be executed (it slows down the training). `--render` to render what RL is doing. `--dask-batch-size`
