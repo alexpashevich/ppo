@@ -56,7 +56,7 @@ def log_eval(total_steps, stats):
             add_summary('env/{}_max'.format(stat_key), np.max(stat_value), total_steps, 'eval')
 
 
-def save_model(save_path, policy, optimizer, epoch, env_steps, device, envs, args, eval=False):
+def save_model(save_path, policy, optimizer, epoch, env_steps, device, envs, args):
     if save_path == "":
         return
     # A really ugly way to save a model to CPU
@@ -70,10 +70,10 @@ def save_model(save_path, policy, optimizer, epoch, env_steps, device, envs, arg
         start_step=env_steps,
         args=args)
 
-    model_name = 'model_eval_{}.pt'.format(epoch) if eval else 'model.pt'
+    model_name = 'model_{}.pth'.format(epoch)
     model_path = os.path.join(save_path, model_name)
     torch.save(save_model, model_path)
-    current_model_symlink = os.path.join(save_path, 'model_current.pt')
+    current_model_symlink = os.path.join(save_path, 'model_current.pth')
     if os.path.islink(current_model_symlink):
         os.unlink(current_model_symlink)
     os.symlink(model_path, current_model_symlink)

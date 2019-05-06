@@ -136,7 +136,7 @@ def main():
 
         if epoch % args.save_interval == 0:
             log.save_model(
-                logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args, eval=True)
+                logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args)
 
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
@@ -145,7 +145,7 @@ def main():
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
         if len(stats_global['length']) > 0 and is_eval_time:
             log.save_model(
-                logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args, eval=True)
+                logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args)
             if not args.eval_offline:
                 envs_eval, stats_eval = utils.evaluate(
                     policy, args, device, envs_train, envs_eval)
