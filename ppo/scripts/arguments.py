@@ -103,5 +103,6 @@ def get_args():
     args.recurrent_policy = False  # turn off recurrent policies support
     if args.dask_batch_size is None:
         args.dask_batch_size = int(args.num_processes / 2)
+    assert args.num_master_steps_per_update is not None
 
     return args

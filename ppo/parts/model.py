@@ -4,8 +4,9 @@ import torch.nn as nn
 from ppo.parts.distributions import Categorical, DiagGaussian
 import ppo.tools.misc as misc
 
-from bc.net.architectures import utils as bc_utils
 from bc.dataset import Actions
+from bc.net.architectures import utils as net_utils
+from bc.net.architectures.resnet import utils as resnet_utils
 
 
 class Flatten(nn.Module):
@@ -234,22 +235,42 @@ class ResnetBase(NNBase):
         self.resnet = bc_model.net.module
         self.resnet.return_features = True
 
-        init_ = lambda m: misc.init(
-            m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
+        # init_ = lambda m: misc.init(
+        #     m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
 
-        self.actor = nn.Sequential(
-            init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
-            nn.Tanh(),
-            init_(nn.Linear(hidden_size, hidden_size)),
-            nn.Tanh()
-        )
+        # mode = bc_args['mode']
+        # # TODO: maybe remove this assert in the future
+        # assert 'master' in mode
+        # master_head_type = mode.split('master_')[-1]
+        # bc_model_extra_args = net_utils.config_to_params(bc_args['archi'], bc_args['mode'])
 
-        self.critic = nn.Sequential(
-            init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
-            nn.Tanh(),
-            init_(nn.Linear(hidden_size, hidden_size)),
-            nn.Tanh()
-        )
+        self.actor, actor_fc_unused = resnet_utils.make_master_head(
+            master_head_type='conv',
+            num_skills=num_skills,
+            inplanes=bc_args['features_dim'],
+            size_conv_filters=1)
+        self.actor.add_module('4', nn.AvgPool2d(7, stride=1))
+        self.actor.add_module('5', resnet_utils.Flatten())
+        # self.actor = nn.Sequential(
+        #     init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
+        #     nn.Tanh(),
+        #     init_(nn.Linear(hidden_size, hidden_size)),
+        #     nn.Tanh()
+        # )
+
+        self.critic, actor_fc_unused = resnet_utils.make_master_head(
+            master_head_type='conv',
+            num_skills=num_skills,
+            inplanes=bc_args['features_dim'],
+            size_conv_filters=1)
+        self.critic.add_module('4', nn.AvgPool2d(7, stride=1))
+        self.critic.add_module('5', resnet_utils.Flatten())
+        # self.critic = nn.Sequential(
+        #     init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
+        #     nn.Tanh(),
+        #     init_(nn.Linear(hidden_size, hidden_size)),
+        #     nn.Tanh()
+        # )
 
         init_ = lambda m: misc.init(
             m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
