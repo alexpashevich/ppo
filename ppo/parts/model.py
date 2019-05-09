@@ -222,11 +222,14 @@ class ResnetBase(NNBase):
             bc_model=None,
             num_skills=4,
             recurrent_policy=False,  # is not supported
-            hidden_size=64,
             action_memory=0,
             bc_args=None,
+            master_type='conv',
+            master_num_channels=64,
+            master_conv_filters=1,
             **unused_kwargs):
-        super(ResnetBase, self).__init__(recurrent_policy, hidden_size, hidden_size)
+        super(ResnetBase, self).__init__(
+            recurrent_policy, master_num_channels, master_num_channels)
 
         self.dim_action = bc_args['dim_action'] + 1
         self.dim_action_seq = self.dim_action * bc_args['steps_action']
@@ -244,13 +247,12 @@ class ResnetBase(NNBase):
         # master_head_type = mode.split('master_')[-1]
         # bc_model_extra_args = net_utils.config_to_params(bc_args['archi'], bc_args['mode'])
 
-        self.actor, actor_fc_unused = resnet_utils.make_master_head(
-            master_head_type='conv',
+        self.actor = self._create_head(
+            master_type=master_type,
             num_skills=num_skills,
+            num_channels=master_num_channels,
             inplanes=bc_args['features_dim'],
-            size_conv_filters=1)
-        self.actor.add_module('4', nn.AvgPool2d(7, stride=1))
-        self.actor.add_module('5', resnet_utils.Flatten())
+            size_conv_filters=master_conv_filters)
         # self.actor = nn.Sequential(
         #     init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
         #     nn.Tanh(),
@@ -258,14 +260,12 @@ class ResnetBase(NNBase):
         #     nn.Tanh()
         # )
 
-        self.critic, actor_fc_unused = resnet_utils.make_master_head(
-            master_head_type='conv',
+        self.critic = self._create_head(
+            master_type=master_type,
             num_skills=num_skills,
-            num_channels=hidden_size,
+            num_channels=master_num_channels,
             inplanes=bc_args['features_dim'],
-            size_conv_filters=1)
-        self.critic.add_module('4', nn.AvgPool2d(7, stride=1))
-        self.critic.add_module('5', resnet_utils.Flatten())
+            size_conv_filters=master_conv_filters)
         # self.critic = nn.Sequential(
         #     init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
         #     nn.Tanh(),
@@ -276,9 +276,24 @@ class ResnetBase(NNBase):
         init_ = lambda m: misc.init(
             m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
 
-        self.critic_linear = init_(nn.Linear(hidden_size + action_memory, 1))
+        self.critic_linear = init_(nn.Linear(master_num_channels + action_memory, 1))
 
         self.train()
+
+    def _create_head(self, master_type, num_skills, num_channels, inplanes, size_conv_filters):
+        head_conv, head_fc = resnet_utils.make_master_head(
+            master_head_type=master_type,
+            num_skills=num_skills,
+            num_channels=num_channels,
+            inplanes=inplanes,
+            size_conv_filters=size_conv_filters)
+        if master_type == 'fc':
+            head = head_fc
+        else:
+            head_conv.add_module('4', nn.AvgPool2d(7, stride=1))
+            head_conv.add_module('5', resnet_utils.Flatten())
+            head = head_conv
+        return head
 
     @property
     def output_size(self):

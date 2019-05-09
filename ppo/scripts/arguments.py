@@ -97,8 +97,13 @@ def get_args():
                         help='log interval, one log per n updates (default: 10)')
     parser.add_argument('--save-interval', type=int, default=2,
                         help='save interval, one save per n updates (default: 100)')
-    # master head arguments should be here
-    # TODO
+    # master head
+    parser.add_argument('--master-type', type=str, default='conv',
+                        help='set vision based master head type')
+    parser.add_argument('--master-num-channels', type=int, default=64,
+                        help='set master number of channels')
+    parser.add_argument('--master-conv-filters', type=int, default=3,
+                        help='set vision based master layers depth')
 
     args = parser.parse_args()
     assert args.algo == 'ppo'
