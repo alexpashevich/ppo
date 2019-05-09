@@ -261,6 +261,7 @@ class ResnetBase(NNBase):
         self.critic, actor_fc_unused = resnet_utils.make_master_head(
             master_head_type='conv',
             num_skills=num_skills,
+            num_channels=hidden_size,
             inplanes=bc_args['features_dim'],
             size_conv_filters=1)
         self.critic.add_module('4', nn.AvgPool2d(7, stride=1))
@@ -275,23 +276,31 @@ class ResnetBase(NNBase):
         init_ = lambda m: misc.init(
             m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
 
-        self.critic_linear = init_(nn.Linear(hidden_size, 1))
+        self.critic_linear = init_(nn.Linear(hidden_size + action_memory, 1))
 
         self.train()
+
+    @property
+    def output_size(self):
+        return self._hidden_size + self.action_memory
 
     def forward(self, inputs, actions_memory, unused_rnn_hxs, unused_masks, master_action=None):
         # we now reshape the observations inside each environment
         # we do not use rnn_hxs but keep it for compatibility
         skills_actions, master_features = self.resnet(inputs)
-        if actions_memory is not None:
-            # agent has a memory, this could be only the master action forward pass
-            assert master_action is None
-            master_features = torch.cat((master_features, actions_memory), dim=1)
+        # if actions_memory is not None:
+        #     # agent has a memory, this could be only the master action forward pass
+        #     assert master_action is None
+        #     master_features = torch.cat((master_features, actions_memory), dim=1)
 
         if master_action is None:
             # this is the policy step itself
             hidden_critic = self.critic(master_features.detach())
             hidden_actor = self.actor(master_features.detach())
+            if actions_memory is not None:
+                actions_memory = 2 * actions_memory / (self.num_skills - 1) - 1
+                hidden_critic = torch.cat((hidden_critic, actions_memory), dim=1)
+                hidden_actor = torch.cat((hidden_actor, actions_memory), dim=1)
             return self.critic_linear(hidden_critic), hidden_actor, unused_rnn_hxs
         else:
             # we want the skill actions

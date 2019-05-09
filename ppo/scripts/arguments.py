@@ -85,7 +85,7 @@ def get_args():
                         help='eval interval, one eval per n updates (default: None)')
     parser.add_argument('--eval-max-length-factor', type=float, default=1.0,
                         help='horizon for eval episodes is the max length (train) multiplied by this')
-    parser.add_argument('--eval-offline', action='store_true', default=False,
+    parser.add_argument('--no-eval-offline', action='store_true', default=False,
                         help='whether to only save the eval checkpoints for the offline evaluation')
     # logging
     parser.add_argument('--logdir', default='./logs/',
@@ -97,10 +97,13 @@ def get_args():
                         help='log interval, one log per n updates (default: 10)')
     parser.add_argument('--save-interval', type=int, default=2,
                         help='save interval, one save per n updates (default: 100)')
+    # master head arguments should be here
+    # TODO
 
     args = parser.parse_args()
     assert args.algo == 'ppo'
     args.recurrent_policy = False  # turn off recurrent policies support
+    args.eval_offline = not args.no_eval_offline
     if args.dask_batch_size is None:
         args.dask_batch_size = int(args.num_processes / 2)
     assert args.num_master_steps_per_update is not None
