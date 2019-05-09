@@ -247,12 +247,13 @@ class ResnetBase(NNBase):
         # master_head_type = mode.split('master_')[-1]
         # bc_model_extra_args = net_utils.config_to_params(bc_args['archi'], bc_args['mode'])
 
-        self.actor = self._create_head(
+        self.actor, self.critic = [self._create_head(
             master_type=master_type,
             num_skills=num_skills,
             num_channels=master_num_channels,
             inplanes=bc_args['features_dim'],
-            size_conv_filters=master_conv_filters)
+            size_conv_filters=master_conv_filters) for _ in range(2)]
+
         # self.actor = nn.Sequential(
         #     init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
         #     nn.Tanh(),
@@ -260,12 +261,6 @@ class ResnetBase(NNBase):
         #     nn.Tanh()
         # )
 
-        self.critic = self._create_head(
-            master_type=master_type,
-            num_skills=num_skills,
-            num_channels=master_num_channels,
-            inplanes=bc_args['features_dim'],
-            size_conv_filters=master_conv_filters)
         # self.critic = nn.Sequential(
         #     init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
         #     nn.Tanh(),
