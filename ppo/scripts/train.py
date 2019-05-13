@@ -140,7 +140,7 @@ def main():
 
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
-                env_steps, start, stats_global, action_loss, value_loss, dist_entropy)
+                env_steps, start, stats_global, action_loss, value_loss, dist_entropy, epoch)
 
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
         if len(stats_global['length']) > 0 and is_eval_time:

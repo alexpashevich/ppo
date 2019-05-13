@@ -47,7 +47,11 @@ def dict_to_tensor(dictionary):
     tensor_list = []
     for key in sorted(dictionary.keys()):
         tensor_list.append(dictionary[key])
-    return torch.stack(tensor_list), sorted(dictionary.keys())
+    tensor = torch.stack(tensor_list)
+    # assert check
+    for tensor_idx, env_idx in enumerate(sorted(dictionary.keys())):
+        assert tensor[tensor_idx].float().mean() == dictionary[env_idx].float().mean()
+    return tensor, sorted(dictionary.keys())
 
 
 def tensor_to_dict(tensor, keys=None):
@@ -59,6 +63,9 @@ def tensor_to_dict(tensor, keys=None):
     dictionary = {}
     for idx, key in enumerate(keys):
         dictionary[key] = tensor[idx]
+    # assert check
+    for tensor_idx, env_idx in enumerate(sorted(keys)):
+        assert tensor[tensor_idx].float().mean() == dictionary[env_idx].float().mean()
     return dictionary, keys
 
 

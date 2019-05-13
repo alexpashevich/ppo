@@ -2,6 +2,7 @@ import gym
 import mime
 import torch
 import itertools
+import faulthandler
 import numpy as np
 
 from collections import OrderedDict
@@ -9,6 +10,7 @@ from dask.distributed import Pub, Sub
 
 from bc.dataset import Frames, Actions
 from ppo.tools import misc
+
 
 
 class MimeEnv:
@@ -24,6 +26,8 @@ class MimeEnv:
 
         # clean the dask pipes
         self.pub_out.put(None)
+        # make the env to print all the logs
+        faulthandler.enable()
 
         # start the environment loop
         self.env_loop()
@@ -167,4 +171,6 @@ class MimeEnv:
         else:
             self.need_master_action = False
             action_applied.update(Actions.filter_action(action_update, self.action_keys))
+        if self.skills_timescales is not None:
+            self.need_master_action = self.step_counter_after_new_action >= self.skills_timescales[str(skill)]
         return action_applied
