@@ -70,11 +70,11 @@ def get_args():
                         help='dict of timescales corresponding to each skill or the timescale value')
     parser.add_argument('--num-skills', type=int, default=4,
                         help='number of skills')
-    parser.add_argument('--no-skip-unused-obs', action='store_true', default=False,
-                        help='whether to render the observations not used by master (scripted setup)')
     # BC skills
     parser.add_argument('--checkpoint-path', type=str, default=None,
                         help='if specified, load the networks weights from the file')
+    parser.add_argument('--check-skills-silency', action='store_true', default=False,
+                        help='whether to check skill silency condition (only works for salad)')
     # full state stuff
     parser.add_argument('--mime-action-space', type=str, default=None,
                         help='number of last actions to pass to the agent')

@@ -40,7 +40,10 @@ class DaskEnv:
         self.num_frames = config.bc_args['num_frames']
 
     def _init_dask(self, config):
-        cluster = LocalCluster(n_workers=self.num_processes)
+        cluster = LocalCluster(
+            n_workers=self.num_processes,
+            # silence_logs=0,
+            memory_limit=None)
         client = Client(cluster)
         # always define publishers first then subscribers
         pub_out = [Pub('env{}_input'.format(env_idx)) for env_idx in range(self.num_processes)]

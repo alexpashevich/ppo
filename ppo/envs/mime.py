@@ -12,7 +12,6 @@ from bc.dataset import Frames, Actions
 from ppo.tools import misc
 
 
-
 class MimeEnv:
     def __init__(self, args, obs_running_stats=None):
         self.parse_args(args)
@@ -47,6 +46,7 @@ class MimeEnv:
             raise NotImplementedError('Unknown input type = {}'.format(args['input_type']))
         self.augmentation = args['augmentation']
         self.hrlbc_setup = args['hrlbc_setup']
+        self.check_skills_silency = args['check_skills_silency']
         num_skills = args['num_skills']
         # timescales for skills (hrlbc setup only)
         self.skills_timescales = args['timescale']
@@ -84,7 +84,7 @@ class MimeEnv:
         if hasattr(env.unwrapped.scene, 'set_rl_mode'):
             env.unwrapped.scene.set_rl_mode()
         else:
-            print('WARNING: the scene does not have set_rl_mode function')
+            raise NotImplementedError
         if self.max_length is not None:
             env._max_episode_steps = self.max_length
         if self.render:
@@ -153,6 +153,12 @@ class MimeEnv:
                 self.need_master_action = True
             else:
                 self.need_master_action = False
+            if self.check_skills_silency and self.step_counter_after_new_action == 1:
+                if self.env.unwrapped.scene.skill_should_be_silent(skill):
+                    # print('env {:02d} skips the action (skill = {}, ts = {})'.format(
+                    #     self.env_idx, skill, self.step_counter))
+                    action = dict(linear_velocity=[0, 0, 0], angular_velocity=[0, 0, 0])
+                    self.need_master_action = True
             return action
         else:
             return self.get_script_action(skill)
