@@ -17,7 +17,8 @@ class RolloutStorage(object):
                  action_space,
                  recurrent_hidden_state_size,
                  action_memory=0):
-        num_steps *= num_processes
+        # num_steps *= num_processes
+        num_steps *= max(int(np.sqrt(num_processes)), 2)
         self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
         self.recurrent_hidden_states = torch.zeros(
             num_steps + 1, num_processes, recurrent_hidden_state_size)

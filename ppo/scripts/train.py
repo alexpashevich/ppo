@@ -59,6 +59,7 @@ def main():
     logdir = os.path.join(args.logdir, args.timestamp)
     args, device, all_envs, policy, start_epoch, start_step, agent, action_space = init_training(
         args, logdir)
+    misc.print_gpu_usage(device)
     envs_train, envs_eval = all_envs
     action_space_skills = Box(-np.inf, np.inf, (args.bc_args['dim_action'],), dtype=np.float)
     rollouts, obs = utils.create_rollout_storage(
@@ -141,6 +142,7 @@ def main():
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
                 env_steps, start, stats_global, action_loss, value_loss, dist_entropy, epoch)
+            misc.print_gpu_usage(device)
 
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
         if len(stats_global['length']) > 0 and is_eval_time:

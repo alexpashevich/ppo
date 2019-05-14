@@ -1,5 +1,7 @@
 import torch
 import random
+import os
+import GPUtil
 import torch.nn as nn
 import numpy as np
 
@@ -75,3 +77,12 @@ def pudb():
         set_trace()
     except:
         pass
+
+
+def print_gpu_usage(device):
+    if str(device) == 'cuda':
+        gpu_id = int(os.environ['CUDA_VISIBLE_DEVICES'])
+        gpu = GPUtil.getGPUs()[gpu_id]
+        print('Using {}% of GPU memory ({}/{})'.format(
+            int(gpu.memoryUsed / gpu.memoryTotal * 100),
+            int(gpu.memoryUsed), int(gpu.memoryTotal)))
