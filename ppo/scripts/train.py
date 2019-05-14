@@ -77,7 +77,7 @@ def main():
         # utils.perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs_train, args)
         utils.perform_actions([5,0,0,1,2,3,4,4,6,0,0,1,2,3], obs, policy, envs_train, args)
         import pudb; pudb.set_trace()
-    epoch, env_steps = start_epoch, start_step
+    epoch, env_steps, env_steps_cached = start_epoch, start_step, start_step
     reward = torch.zeros((args.num_processes, 1)).type_as(obs[0])
     need_master_action, policy_values_cache = np.ones((args.num_processes,)), None
     while True:
@@ -107,6 +107,7 @@ def main():
             # If done then clean the history of observations.
             masks = {i: torch.FloatTensor([0.0] if done_ else [1.0]) for i, done_ in enumerate(done)}
             # check that the obs dictionary contains obs from all envs that will be stored in rollouts
+            # we only store observations from envs which need a master action
             assert len(set(np.where(need_master_action)[0]).difference(obs.keys())) == 0
             rollouts.insert(
                 obs,
@@ -122,16 +123,18 @@ def main():
                               for info in np.array(infos)[np.where(need_master_action)[0]]])
         pbar.close()
 
+        env_steps_new = env_steps - env_steps_cached
+        env_steps_cached = env_steps
         print('Environment steps per 1 master step (in average): {:.1f}'.format(
-            env_steps / master_steps_done))
+            env_steps_new / master_steps_done))
         print('Environment steps per process (in average): {:.1f} (max_length = {})'.format(
-            env_steps / args.num_processes, args.max_length))
-        if (env_steps / args.num_processes / args.max_length > 1.5 or
-            env_steps / args.num_processes / args.max_length < 0.5):
+            env_steps_new / args.num_processes, args.max_length))
+        if (env_steps_new / args.num_processes / args.max_length > 1.5 or
+            env_steps_new / args.num_processes / args.max_length < 0.5):
             print(colored((
                 'Ratio of average number of environment steps per max-length is {:.2f}, ' +
                 'consider changing --max-length or --num-master-steps-per-update').format(
-                    env_steps / args.num_processes / args.max_length), 'yellow'))
+                    env_steps_new / args.num_processes / args.max_length), 'yellow'))
 
         # master policy training
         with torch.no_grad():
