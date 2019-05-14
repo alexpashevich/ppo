@@ -71,7 +71,7 @@ class MimeEnv:
                 obs, reward, done, info = self.env.step(action_applied)
                 info = self.update_info(info)
                 if done:
-                    obs = self.reset_env()
+                    obs = self.reset_env(error_message=info['failure_message'])
                 self.publish_obs(
                     obs_dict={'observation': obs, 'reward': reward, 'done': done, 'info': info})
             else:
@@ -91,19 +91,19 @@ class MimeEnv:
             env.unwrapped.scene.renders(True)
         return env
 
-    def reset_env(self, reset_mime=True):
+    def reset_env(self, reset_mime=True, error_message=''):
+        step_counter_cached = self.step_counter
         self.step_counter = 0
         self.step_counter_after_new_action = 0
         self.prev_script = None
         self.need_master_action = True
         if reset_mime:
             obs = self.env.reset()
-            print('env {:02d} is reset'.format(self.env_idx))
+            print('env {:02d} is reset after {} timesteps: {}'.format(
+                self.env_idx, step_counter_cached - 1, error_message))
             return obs
 
     def update_info(self, info):
-        if len(info['failure_message']):
-            print('env {:02d} failure {}'.format(self.env_idx, info['failure_message']))
         info['length'] = self.step_counter
         info['need_master_action'] = self.need_master_action
         info['length_after_new_action'] = self.step_counter_after_new_action
@@ -146,17 +146,22 @@ class MimeEnv:
 
     def get_action_applied(self, action):
         skill = action.pop('skill')[0]
+        if self.render and self.step_counter_after_new_action == 1:
+            print('env {:02d} got a new master action = {} (ts = {})'.format(
+                self.env_idx, skill, self.step_counter))
         if self.hrlbc_setup:
             if self.step_counter_after_new_action >= self.skills_timescales[str(skill)]:
-                # print('env {:02d} needs a new master action (skill = {}, ts = {})'.format(
-                #     self.env_idx, skill, self.step_counter))
+                if self.render:
+                    print('env {:02d} needs a new master action (ts = {})'.format(
+                        self.env_idx, self.step_counter))
                 self.need_master_action = True
             else:
                 self.need_master_action = False
             if self.check_skills_silency and self.step_counter_after_new_action == 1:
                 if self.env.unwrapped.scene.skill_should_be_silent(skill):
-                    # print('env {:02d} skips the action (skill = {}, ts = {})'.format(
-                    #     self.env_idx, skill, self.step_counter))
+                    if self.render:
+                        print('env {:02d} skips the action {} (ts = {})'.format(
+                            self.env_idx, skill, self.step_counter))
                     action = dict(linear_velocity=[0, 0, 0], angular_velocity=[0, 0, 0])
                     self.need_master_action = True
             return action
@@ -171,8 +176,9 @@ class MimeEnv:
         action_applied = Actions.get_dict_null_action(self.action_keys)
         action_update = next(action_chain, None)
         if action_update is None:
-            # print('env {:02d} needs a new master action (skill = {}, ts = {})'.format(
-            #     self.env_idx, skill, self.step_counter))
+            if self.render:
+                print('env {:02d} needs a new master action (ts = {})'.format(
+                    self.env_idx, self.step_counter))
             self.need_master_action = True
         else:
             self.need_master_action = False

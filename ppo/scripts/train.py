@@ -4,6 +4,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from gym.spaces import Discrete, Box
+from termcolor import colored
 
 import bc.utils.misc as bc_misc
 from ppo.tools import misc
@@ -120,6 +121,17 @@ def main():
             env_steps += sum([info['length_after_new_action']
                               for info in np.array(infos)[np.where(need_master_action)[0]]])
         pbar.close()
+
+        print('Environment steps per 1 master step (in average): {:.1f}'.format(
+            env_steps / master_steps_done))
+        print('Environment steps per process (in average): {:.1f} (max_length = {})'.format(
+            env_steps / args.num_processes, args.max_length))
+        if (env_steps / args.num_processes / args.max_length > 1.5 or
+            env_steps / args.num_processes / args.max_length < 0.5):
+            print(colored((
+                'Ratio of average number of environment steps per max-length is {:.2f}, ' +
+                'consider changing --max-length or --num-master-steps-per-update').format(
+                    env_steps / args.num_processes / args.max_length), 'yellow'))
 
         # master policy training
         with torch.no_grad():
