@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from gym.spaces import Discrete, Box
 from termcolor import colored
+from argparse import Namespace
 
 import bc.utils.misc as bc_misc
 from ppo.tools import misc
@@ -31,7 +32,7 @@ def init_training(args, logdir):
     log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
 
     # create the parallel envs
-    envs_train, envs_eval = DaskEnv(args), None
+    envs_train = DaskEnv(args)
 
     # create the policy
     action_space = Discrete(args.num_skills)
@@ -51,22 +52,33 @@ def init_training(args, logdir):
         envs_train.obs_running_stats = loaded_dict['obs_running_stats']
         load.optimizer(agent.optimizer, loaded_dict['optimizer_state_dict'], device)
 
-    all_envs = envs_train, envs_eval
-    return args, device, all_envs, policy, start_epoch, start_step, agent, action_space
+    exp_dict = dict(
+        device=device,
+        envs_train=envs_train,
+        start_epoch=start_epoch,
+        start_step=start_step,
+        action_space=action_space,
+    )
+
+    # create or load stats
+    if loaded_dict:
+        stats_global, stats_local = loaded_dict['stats_global'], loaded_dict['stats_local']
+    else:
+        stats_global, stats_local = stats.init(args.num_processes)
+
+    return args, policy, agent, stats_global, stats_local, Namespace(**exp_dict)
 
 
 def main():
     args = get_args()
     logdir = os.path.join(args.logdir, args.timestamp)
-    args, device, all_envs, policy, start_epoch, start_step, agent, action_space = init_training(
-        args, logdir)
-    misc.print_gpu_usage(device)
-    envs_train, envs_eval = all_envs
+    args, policy, agent, stats_global, stats_local, exp_vars = init_training(args, logdir)
+    misc.print_gpu_usage(exp_vars.device)
+    envs_train, envs_eval = exp_vars.envs_train, None
     action_space_skills = Box(-np.inf, np.inf, (args.bc_args['dim_action'],), dtype=np.float)
     rollouts, obs = utils.create_rollout_storage(
-        args, envs_train, policy, action_space, action_space_skills, device)
+        args, envs_train, policy, exp_vars.action_space, action_space_skills, exp_vars.device)
 
-    stats_global, stats_local = stats.init(args.num_processes)
     start = time.time()
 
     if hasattr(policy.base, 'resnet'):
@@ -77,7 +89,7 @@ def main():
         # utils.perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs_train, args)
         utils.perform_actions([5,0,0,1,2,3,4,4,6,0,0,1,2,3], obs, policy, envs_train, args)
         import pudb; pudb.set_trace()
-    epoch, env_steps, env_steps_cached = start_epoch, start_step, start_step
+    epoch, env_steps, env_steps_cached = exp_vars.start_epoch, exp_vars.start_step, exp_vars.start_step
     reward = torch.zeros((args.num_processes, 1)).type_as(obs[0])
     need_master_action, policy_values_cache = np.ones((args.num_processes,)), None
     while True:
@@ -152,20 +164,22 @@ def main():
 
         if epoch % args.save_interval == 0:
             log.save_model(
-                logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args)
+                logdir, policy, agent.optimizer, epoch, env_steps, exp_vars.device, envs_train, args,
+                stats_global, stats_local)
 
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
                 env_steps, start, stats_global, action_loss, value_loss, dist_entropy, epoch)
-            misc.print_gpu_usage(device)
+            misc.print_gpu_usage(exp_vars.device)
 
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
         if len(stats_global['length']) > 0 and is_eval_time:
             log.save_model(
-                logdir, policy, agent.optimizer, epoch, env_steps, device, envs_train, args)
+                logdir, policy, agent.optimizer, epoch, env_steps, exp_vars.device, envs_train, args,
+                stats_global, stats_local)
             if not args.eval_offline:
                 envs_eval, stats_eval = utils.evaluate(
-                    policy, args, device, envs_train, envs_eval)
+                    policy, args, exp_vars.device, envs_train, envs_eval)
                 log.log_eval(env_steps, stats_eval)
             else:
                 print('Saving the model after epoch {} for the offline evaluation'.format(epoch))

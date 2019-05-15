@@ -57,7 +57,17 @@ def log_eval(total_steps, stats):
             add_summary('env/{}_max'.format(stat_key), np.max(stat_value), total_steps, 'eval')
 
 
-def save_model(save_path, policy, optimizer, epoch, env_steps, device, envs, args):
+def save_model(
+        save_path,
+        policy,
+        optimizer,
+        epoch,
+        env_steps,
+        device,
+        envs,
+        args,
+        stats_global,
+        stats_local):
     if save_path == "":
         return
     # A really ugly way to save a model to CPU
@@ -69,7 +79,10 @@ def save_model(save_path, policy, optimizer, epoch, env_steps, device, envs, arg
         obs_running_stats=envs.obs_running_stats,
         start_epoch=epoch+1,
         start_step=env_steps,
-        args=args)
+        args=args,
+        stats_global=stats_global,
+        stats_local=stats_local,
+    )
 
     model_name = 'model_{}.pth'.format(epoch)
     model_path = os.path.join(save_path, model_name)
