@@ -111,6 +111,7 @@ def get_args():
     args.eval_offline = not args.no_eval_offline
     if args.dask_batch_size is None:
         args.dask_batch_size = max(1, int(args.num_processes / 2))
-    assert args.num_master_steps_per_update is not None
+    if args.num_master_steps_per_update is None:
+        print('WARNING: num_master_steps_per_update is not specified')
 
     return args

@@ -82,7 +82,7 @@ class MimeEnv:
         env = gym.make(self.env_name)
         env.seed(self.env_idx + seed)
         if hasattr(env.unwrapped.scene, 'set_rl_mode'):
-            env.unwrapped.scene.set_rl_mode()
+            env.unwrapped.scene.set_rl_mode(hrlbc=self.hrlbc_setup)
         else:
             raise NotImplementedError
         if self.max_length is not None:
