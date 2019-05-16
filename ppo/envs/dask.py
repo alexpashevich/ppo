@@ -52,6 +52,7 @@ class DaskEnv:
 
     def _init_dask(self):
         if self._cluster is not None:
+            print('WARNING: reinitiailizing dask')
             self._cluster.close()
         if self._client is not None:
             self._client.close()
@@ -72,11 +73,12 @@ class DaskEnv:
         self.pub_out = pub_out
         self.sub_in = sub_in
         # clean the dask pipes
-        counter = 0
-        for env_idx in self.sub_in:
-            counter += 1
-            if counter == self.num_processes:
-                break
+        try:
+            for _ in range(self.num_processes):
+                unused_env_idx = self.sub_in.get(timeout=5)
+        except gen.TimeoutError:
+            # something went wrong, do it again...
+            self._init_dask()
 
     def step(self, actions):
         for env_idx, action_dict in actions.items():
