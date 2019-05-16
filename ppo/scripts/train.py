@@ -1,6 +1,7 @@
 import os
 import time
 import torch
+import imageio
 import numpy as np
 from tqdm import tqdm
 from gym.spaces import Discrete, Box
@@ -159,19 +160,25 @@ def main():
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
 
+        # assert that the skills have not been changed by ppo
         if hasattr(policy.base, 'resnet'):
             utils.do_frozen_skills_check(policy, *assert_tensors)
 
+        # saving the model
         if epoch % args.save_interval == 0:
             log.save_model(
                 logdir, policy, agent.optimizer, epoch, env_steps, exp_vars.device, envs_train, args,
                 stats_global, stats_local)
 
+        # logging
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
                 env_steps, start, stats_global, action_loss, value_loss, dist_entropy, epoch)
             misc.print_gpu_usage(exp_vars.device)
+            imageio.imwrite(os.path.join(logdir, 'eval/obs_{}.png'.format(epoch)),
+                            obs.popitem()[1][0].cpu().numpy())
 
+        # evaluating or saving for offline evaluation
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
         if len(stats_global['length']) > 0 and is_eval_time:
             log.save_model(
