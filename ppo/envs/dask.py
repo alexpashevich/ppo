@@ -1,4 +1,5 @@
 import torch
+import time
 import numpy as np
 
 from dask.distributed import Client, LocalCluster, Pub, Sub
@@ -39,27 +40,29 @@ class DaskEnv:
         self.observation_type = config.input_type
         self.num_frames = config.bc_args['num_frames']
 
+    def _client_map(self):
+        env_args = []
+        for env_idx in range(self.num_processes):
+            env_config = dict(env_idx=env_idx)
+            env_config.update(vars(self._config))
+            env_args.append(env_config)
+        return self._client.map(MimeEnv, env_args)
+
     def _init_dask(self, config):
         cluster = LocalCluster(
             n_workers=self.num_processes,
             # silence_logs=0,
             memory_limit=None)
-        client = Client(cluster)
+        self._client = Client(cluster)
         # always define publishers first then subscribers
         pub_out = [Pub('env{}_input'.format(env_idx)) for env_idx in range(self.num_processes)]
-        env_args = []
-        for env_idx in range(self.num_processes):
-            env_config = dict(env_idx=env_idx)
-            env_config.update(vars(config))
-            env_args.append(env_config)
-        _ = client.map(MimeEnv, env_args)
+        self.__USELESS_BULLSHIT_DO_NOT_REMOVE_BECAUSE_DASK_WILL_STOP_WORKING = self._client_map()
         sub_in = Sub('observations')
         self.pub_out = pub_out
         self.sub_in = sub_in
-
         # clean the dask pipes
         counter = 0
-        for none in self.sub_in:
+        for env_idx in self.sub_in:
             counter += 1
             if counter == self.num_processes:
                 break
@@ -79,7 +82,17 @@ class DaskEnv:
     def _get_obs_batch(self, batch_size):
         obs_dict, reward_dict, done_dict, info_dict = {}, {}, {}, {}
         count_envs = 0
-        for env_dict, env_idx in self.sub_in:
+        while True:
+            env_return = self.sub_in.get(timeout=20)
+            if isinstance(env_return, int):
+                env_idx = env_return
+                print('WARNING: Worker {} just died...'.format(env_idx))
+                time.sleep(3)
+                self.pub_out[env_idx].put({'function': 'reset_after_crash'})
+                self.action_sent_flags[env_idx] = 1
+                continue
+            env_dict, env_idx = env_return
+
             assert self.action_sent_flags[env_idx] == 1
             self.action_sent_flags[env_idx] = 0
             obs_dict[env_idx] = env_dict['observation'].to(torch.device(self.device))

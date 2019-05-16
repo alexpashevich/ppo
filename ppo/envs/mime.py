@@ -24,7 +24,7 @@ class MimeEnv:
         self.reset_env(reset_mime=False)
 
         # clean the dask pipes
-        self.pub_out.put(None)
+        self.pub_out.put(self.env_idx)
         # make the env to print all the logs
         faulthandler.enable()
 
@@ -66,6 +66,12 @@ class MimeEnv:
             if input_['function'] == 'reset':
                 obs = self.reset_env()
                 self.publish_obs(obs_dict={'observation': obs})
+            elif input_['function'] == 'reset_after_crash':
+                obs = self.reset_env()
+                self.publish_obs(
+                    obs_dict={'observation': obs, 'reward': 0, 'done': True,
+                              'info': self.update_info(
+                                  {'success': False, 'failure_message': 'Env crashed'})})
             elif input_['function'] == 'step':
                 action_applied = self.get_action_applied(input_['action'])
                 obs, reward, done, info = self.env.step(action_applied)
