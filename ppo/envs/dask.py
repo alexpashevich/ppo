@@ -6,6 +6,7 @@ from dask.distributed import Client, LocalCluster, Pub, Sub
 from baselines.common.running_mean_std import RunningMeanStd
 from gym.spaces import Box
 from collections import deque
+from tornado import gen
 
 import bc.utils.misc as bc_misc
 from ppo.envs.mime import MimeEnv
@@ -28,6 +29,7 @@ class DaskEnv:
 
         # lazy dask initialization
         self._initialized = False
+        self._cluster, self._client, self.pub_out, self.sub_in = None, None, None, None
         self._config = config
 
     def _read_config(self, config):
@@ -48,15 +50,24 @@ class DaskEnv:
             env_args.append(env_config)
         return self._client.map(MimeEnv, env_args)
 
-    def _init_dask(self, config):
-        cluster = LocalCluster(
+    def _init_dask(self):
+        if self._cluster is not None:
+            self._cluster.close()
+        if self._client is not None:
+            self._client.close()
+            del self._USELESS_BULLSHIT_DO_NOT_REMOVE_BECAUSE_DASK_WILL_STOP_WORKING
+        if self.pub_out is not None:
+            del self.pub_out
+        if self.sub_in is not None:
+            del self.sub_in
+        self._cluster = LocalCluster(
             n_workers=self.num_processes,
             # silence_logs=0,
             memory_limit=None)
-        self._client = Client(cluster)
+        self._client = Client(self._cluster)
         # always define publishers first then subscribers
         pub_out = [Pub('env{}_input'.format(env_idx)) for env_idx in range(self.num_processes)]
-        self.__USELESS_BULLSHIT_DO_NOT_REMOVE_BECAUSE_DASK_WILL_STOP_WORKING = self._client_map()
+        self._USELESS_BULLSHIT_DO_NOT_REMOVE_BECAUSE_DASK_WILL_STOP_WORKING = self._client_map()
         sub_in = Sub('observations')
         self.pub_out = pub_out
         self.sub_in = sub_in
@@ -83,15 +94,14 @@ class DaskEnv:
         obs_dict, reward_dict, done_dict, info_dict = {}, {}, {}, {}
         count_envs = 0
         while True:
-            env_return = self.sub_in.get(timeout=20)
-            if isinstance(env_return, int):
-                env_idx = env_return
-                print('WARNING: Worker {} just died...'.format(env_idx))
-                time.sleep(3)
-                self.pub_out[env_idx].put({'function': 'reset_after_crash'})
-                self.action_sent_flags[env_idx] = 1
+            try:
+                env_dict, env_idx = self.sub_in.get(timeout=10)
+            except (gen.TimeoutError, TypeError):
+                self._init_dask()
+                self.action_sent_flags[:] = 1
+                for env_idx in range(self.num_processes):
+                    self.pub_out[env_idx].put({'function': 'reset_after_crash'})
                 continue
-            env_dict, env_idx = env_return
 
             assert self.action_sent_flags[env_idx] == 1
             self.action_sent_flags[env_idx] = 0
@@ -108,7 +118,7 @@ class DaskEnv:
 
     def reset(self):
         if not self._initialized:
-            self._init_dask(self._config)
+            self._init_dask()
             self._initialized = True
         if sum(self.action_sent_flags) > 0:
             # an early reset was called, need to collect the step observations first
