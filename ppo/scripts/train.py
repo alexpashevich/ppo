@@ -92,9 +92,10 @@ def main():
         assert_tensors = utils.create_frozen_skills_check(obs, policy)
 
     if args.pudb:
-        # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
-        # utils.perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs_train, args)
-        utils.perform_actions([5,0,0,1,2,3,4,4,6,0,0,1,2,3], obs, policy, envs_train, args)
+        # skill_sequence = [2, 6, 1, 3, 4, 4, 5, 5, 0, 4, 1, 4, 2, 5, 5, 2, 0, 6, 1]
+        # skill_sequence = [2, 6, 1, 3, 4, 4, 5, 5, 0, 4]
+        skill_sequence = [5, 0, 0, 1, 2, 3, 4, 4, 6, 0, 0, 1, 2, 3]
+        utils.perform_skill_sequence(skill_sequence, obs, policy, envs_train, args)
         import pudb; pudb.set_trace()
     epoch, env_steps, env_steps_cached = exp_vars.start_epoch, exp_vars.start_step, exp_vars.start_step
     reward = torch.zeros((args.num_processes, 1)).type_as(obs[0])

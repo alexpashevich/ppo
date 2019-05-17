@@ -80,9 +80,9 @@ def pudb():
 
 
 def print_gpu_usage(device):
-    if str(device) == 'cuda':
+    if str(device) == 'cuda' and 'CUDA_VISIBLE_DEVICES' in os.environ:
         gpu_id = int(os.environ['CUDA_VISIBLE_DEVICES'])
         gpu = GPUtil.getGPUs()[gpu_id]
-        print('Using {}% of GPU memory ({}/{})'.format(
+        print('Using {}% of GPU memory ({}/{}MB)'.format(
             int(gpu.memoryUsed / gpu.memoryTotal * 100),
             int(gpu.memoryUsed), int(gpu.memoryTotal)))

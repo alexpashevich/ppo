@@ -197,11 +197,17 @@ def update_memory_actions(memory_actions, action, need_master_action, done):
     return memory_actions
 
 
-def perform_actions(action_sequence, observation, policy, envs, args):
+def perform_skill_sequence(skill_sequence, observation, policy, envs, args):
     reward = torch.zeros((args.num_processes, 1)).type_as(observation[0])
-    for action in action_sequence:
-        master_action_dict = {env_idx: torch.Tensor([action]).int()
-                              for env_idx, obs in observation.items()}
+    skill_counter = 0
+    while skill_counter < len(skill_sequence):
+        skill = skill_sequence[skill_counter]
+        print('applying skill {}'.format(skill))
+        master_action_dict = {env_idx: torch.Tensor([skill]).int()
+                              for env_idx in range(args.num_processes)}
         observation, reward, done, _, need_master_action = do_master_step(
             master_action_dict, observation, reward, policy, envs, args.hrlbc_setup)
-        print('reward = {}'.format(reward[:, 0].cpu().numpy()))
+        if need_master_action[0]:
+            skill_counter += 1
+            print('reward = {}'.format(reward[0, 0].item()))
+    envs.reset()
