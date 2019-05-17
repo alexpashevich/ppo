@@ -198,13 +198,10 @@ def update_memory_actions(memory_actions, action, need_master_action, done):
 
 
 def perform_actions(action_sequence, observation, policy, envs, args):
-    raise NotImplementedError('this functions needs to be fixed')
-    # observation = envs.reset()
-    reward = 0
+    reward = torch.zeros((args.num_processes, 1)).type_as(observation[0])
     for action in action_sequence:
-        master_action_numpy = [[action] for _ in range(observation.shape[0])]
-        master_action = torch.Tensor(master_action_numpy).int()
+        master_action_dict = {env_idx: torch.Tensor([action]).int()
+                              for env_idx, obs in observation.items()}
         observation, reward, done, _, need_master_action = do_master_step(
-            master_action, observation, reward, policy, envs,
-            args.hrlbc_setup)
-        print('reward = {}'.format(reward[:, 0]))
+            master_action_dict, observation, reward, policy, envs, args.hrlbc_setup)
+        print('reward = {}'.format(reward[:, 0].cpu().numpy()))

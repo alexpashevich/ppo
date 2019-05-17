@@ -36,7 +36,7 @@ def init_training(args, logdir):
         print('Gifs will be written to {}'.format(args.gifdir))
         os.mkdir(args.gifdir)
         for env_idx in range(args.num_processes):
-            os.mkdir(os.path.join(args.gifdir, 'env{:02d}'.format(env_idx)))
+            os.mkdir(os.path.join(args.gifdir, '{:02d}'.format(env_idx)))
 
     # create the parallel envs
     envs_train = DaskEnv(args)
