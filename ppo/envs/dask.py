@@ -82,8 +82,9 @@ class DaskEnv:
 
     def step(self, actions):
         for env_idx, action_dict in actions.items():
-            if self.action_sent_flags[env_idx] == 1:
-                continue
+            # if self.action_sent_flags[env_idx] == 1:
+            #     continue
+            assert self.action_sent_flags[env_idx] == 0
             self.action_sent_flags[env_idx] = 1
             for action_key, action_value in action_dict.items():
                 if isinstance(action_value, torch.Tensor):

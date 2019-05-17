@@ -144,6 +144,7 @@ def get_policy_values(
 def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=False):
     # we expect the action_master to have an action for each env
     # DaskEnv is taking care of using only those of them which are necessary
+    # TODO: fix this comment here, I am not sure it's true anymore
     assert len(action_master.keys()) == envs.num_processes
     info_master = np.array([None] * envs.num_processes)
     done_master = np.array([False] * envs.num_processes)
