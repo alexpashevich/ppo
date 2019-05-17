@@ -34,9 +34,11 @@ def init_training(args, logdir):
     if args.write_gifs:
         args.gifdir = os.path.join(logdir, 'gifs')
         print('Gifs will be written to {}'.format(args.gifdir))
-        os.mkdir(args.gifdir)
-        for env_idx in range(args.num_processes):
-            os.mkdir(os.path.join(args.gifdir, '{:02d}'.format(env_idx)))
+        if not os.path.exists(args.gifdir):
+            os.mkdir(args.gifdir)
+            for env_idx in range(args.num_processes):
+                if not os.path.exists(os.path.join(args.gifdir, '{:02d}'.format(env_idx))):
+                    os.mkdir(os.path.join(args.gifdir, '{:02d}'.format(env_idx)))
 
     # create the parallel envs
     envs_train = DaskEnv(args)
@@ -116,8 +118,10 @@ def main():
             policy_values_cache = value, action, action_log_prob, recurrent_hidden_states
 
             # Observe reward and next obs
+            # obs, reward, done, infos, need_master_action = utils.do_master_step(
+            #     action, rollouts.get_last(rollouts.obs), reward, policy, envs_train, args.hrlbc_setup)
             obs, reward, done, infos, need_master_action = utils.do_master_step(
-                action, rollouts.get_last(rollouts.obs), reward, policy, envs_train, args.hrlbc_setup)
+                action, obs, reward, policy, envs_train, args.hrlbc_setup)
             master_steps_done += np.sum(need_master_action)
             pbar.update(np.sum(need_master_action))
 
