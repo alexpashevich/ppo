@@ -32,9 +32,6 @@ def get_args():
                         help='type of input for the conv nets')
     parser.add_argument('--action-memory', type=int, default=0,
                         help='number of last actions to pass to the agent')
-    # BC stuff
-    parser.add_argument('--augmentation', type=str, default='',
-                        help='which data augmentation to use for the frames')
     # RL algorithm hyperparameters
     parser.add_argument('--lr', type=float, default=7e-4,
                         help='learning rate (default: 7e-4)')
@@ -70,6 +67,9 @@ def get_args():
                         help='dict of timescales corresponding to each skill or the timescale value')
     parser.add_argument('--num-skills', type=int, default=4,
                         help='number of skills')
+    # BC stuff
+    parser.add_argument('--augmentation', type=str, default='',
+                        help='which data augmentation to use for the frames')
     # BC skills
     parser.add_argument('--checkpoint-path', type=str, default=None,
                         help='if specified, load the networks weights from the file')
@@ -97,6 +97,8 @@ def get_args():
                         help='log interval, one log per n updates (default: 10)')
     parser.add_argument('--save-interval', type=int, default=2,
                         help='save interval, one save per n updates (default: 100)')
+    parser.add_argument('--write-gifs', action='store_true', default=False,
+                        help='whether to write ALL environments gifs to $LOGDIR/gifs')
     # master head
     parser.add_argument('--master-type', type=str, default='conv',
                         help='set vision based master head type')

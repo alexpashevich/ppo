@@ -1,9 +1,11 @@
 import gym
 import mime
 import torch
+import os
 import itertools
 import faulthandler
 import numpy as np
+from bc.utils.videos import write_video
 
 from collections import OrderedDict
 from dask.distributed import Pub, Sub
@@ -57,6 +59,13 @@ class MimeEnv:
             for skill in range(num_skills):
                 skills_timescales[str(skill)] = self.skills_timescales
             self.skills_timescales = skills_timescales
+        # gifs writing
+        self.gifdir = None
+        if 'gifdir' in args:
+            self.gifdir = args['gifdir']
+            self.gif_counter = 0
+            if self.gifdir:
+                self.obs_history = {}
 
     def env_loop(self):
         for input_ in self.sub_in:
@@ -103,6 +112,15 @@ class MimeEnv:
         self.step_counter_after_new_action = 0
         self.prev_script = None
         self.need_master_action = True
+        if self.gifdir:
+            for obs_key, obs_list in self.obs_history.items():
+                gif_name = os.path.join(self.gifdir,
+                                        'env{:02d}'.format(self.env_idx),
+                                        'obs_{}_{}.mp4'.format(self.gif_counter, obs_key))
+                write_video(obs_list, gif_name)
+            if len(self.obs_history) > 0:
+                self.gif_counter += 1
+                self.obs_history = {}
         if reset_mime:
             obs = self.env.reset()
             print('env {:02d} is reset after {} timesteps: {}'.format(
@@ -148,6 +166,16 @@ class MimeEnv:
                 self.channels,
                 Frames.sum_channels(self.channels),
                 augmentation_str=self.augmentation)
+            if self.gifdir:
+                if 'orig' in self.obs_history:
+                    self.obs_history['orig'].append(obs_im['depth'])
+                else:
+                    self.obs_history['orig'] = [obs_im['depth']]
+                obs_tensor_denormalized = (obs_tensor[0].numpy() + 1) / 2 * 255
+                if 'aug' in self.obs_history:
+                    self.obs_history['aug'].append(obs_tensor_denormalized)
+                else:
+                    self.obs_history['aug'] = [obs_tensor_denormalized]
         return obs_tensor
 
     def get_action_applied(self, action):
@@ -190,5 +218,6 @@ class MimeEnv:
             self.need_master_action = False
             action_applied.update(Actions.filter_action(action_update, self.action_keys))
         if self.skills_timescales is not None:
-            self.need_master_action = self.step_counter_after_new_action >= self.skills_timescales[str(skill)]
+            skill_timescale = self.skills_timescales[str(skill)]
+            self.need_master_action = self.step_counter_after_new_action >= skill_timescale
         return action_applied
