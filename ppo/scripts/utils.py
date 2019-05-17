@@ -148,6 +148,8 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
     assert len(action_master.keys()) == envs.num_processes
     info_master = np.array([None] * envs.num_processes)
     done_master = np.array([False] * envs.num_processes)
+    # print('action_master = {}'.format(
+    #     [action.item() for env_idx, action in sorted(action_master.items())]))
     while True:
         if hrlbc_setup:
             # get the skill action
@@ -200,15 +202,21 @@ def update_memory_actions(memory_actions, action, need_master_action, done):
 
 def perform_skill_sequence(skill_sequence, observation, policy, envs, args):
     reward = torch.zeros((args.num_processes, 1)).type_as(observation[0])
-    skill_counter = 0
-    while skill_counter < len(skill_sequence):
-        skill = skill_sequence[skill_counter]
-        print('applying skill {}'.format(skill))
-        master_action_dict = {env_idx: torch.Tensor([skill]).int()
-                              for env_idx in range(args.num_processes)}
+    skill_counters = [0] * args.num_processes
+    dones = [False] * args.num_processes
+    while True:
+        master_action_dict = {env_idx: torch.Tensor([skill_sequence[skill_counter]]).int()
+                              for env_idx, skill_counter in enumerate(skill_counters)}
         observation, reward, done, _, need_master_action = do_master_step(
             master_action_dict, observation, reward, policy, envs, args.hrlbc_setup)
-        if need_master_action[0]:
-            skill_counter += 1
-            print('reward = {}'.format(reward[0, 0].item()))
+        for env_idx, need_master_action_flag in enumerate(need_master_action):
+            if need_master_action_flag:
+                if skill_counters[env_idx] == len(skill_sequence) - 1:
+                    skill_counters[env_idx] = 0
+                    dones[env_idx] = True
+                else:
+                    skill_counters[env_idx] += 1
+        print('rewards = {}'.format(reward[:, 0]))
+        if all(dones):
+            break
     envs.reset()

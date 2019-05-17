@@ -94,8 +94,6 @@ def main():
         assert_tensors = utils.create_frozen_skills_check(obs, policy)
 
     if args.pudb:
-        # skill_sequence = [2, 6, 1, 3, 4, 4, 5, 5, 0, 4, 1, 4, 2, 5, 5, 2, 0, 6, 1]
-        # skill_sequence = [2, 6, 1, 3, 4, 4, 5, 5, 0, 4]
         skill_sequence = [5, 0, 0, 1, 2, 3, 4, 4, 6, 0, 0, 1, 2, 3]
         utils.perform_skill_sequence(skill_sequence, obs, policy, envs_train, args)
         import pudb; pudb.set_trace()
@@ -118,8 +116,6 @@ def main():
             policy_values_cache = value, action, action_log_prob, recurrent_hidden_states
 
             # Observe reward and next obs
-            # obs, reward, done, infos, need_master_action = utils.do_master_step(
-            #     action, rollouts.get_last(rollouts.obs), reward, policy, envs_train, args.hrlbc_setup)
             obs, reward, done, infos, need_master_action = utils.do_master_step(
                 action, obs, reward, policy, envs_train, args.hrlbc_setup)
             master_steps_done += np.sum(need_master_action)
