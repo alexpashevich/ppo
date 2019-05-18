@@ -186,10 +186,11 @@ class MimeEnv:
     def get_action_applied(self, action):
         skill = action.pop('skill')[0]
         if self.step_counter_after_new_action == 1:
-            if 'skills' in self.obs_history:
-                self.obs_history['skills'].append(int(skill))
-            else:
-                self.obs_history['skills'] = [int(skill)]
+            if self.gifdir:
+                if 'skills' in self.obs_history:
+                    self.obs_history['skills'].append(int(skill))
+                else:
+                    self.obs_history['skills'] = [int(skill)]
             if self.render:
                 print('env {:02d} got a new master action = {} (ts = {})'.format(
                     self.env_idx, skill, self.step_counter))
