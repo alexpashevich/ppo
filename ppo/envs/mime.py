@@ -26,8 +26,6 @@ class MimeEnv:
         self.step_counter = 0
         self.reset_env(reset_mime=False)
 
-        # clean the dask pipes
-        self.pub_out.put(self.env_idx)
         # make the env to print all the logs
         faulthandler.enable()
 
@@ -117,10 +115,10 @@ class MimeEnv:
             for obs_key, obs_list in self.obs_history.items():
                 if obs_key != 'skills':
                     gif_name = os.path.join(
-                        self.gifdir, 'obs_{}_{}.mp4'.format(self.gif_counter, obs_key))
+                        self.gifdir, '{}_{}.mp4'.format(self.gif_counter, obs_key))
                     write_video(obs_list, gif_name)
                 else:
-                    json_name = os.path.join(self.gifdir, 'obs_skills_{}.json'.format(self.gif_counter))
+                    json_name = os.path.join(self.gifdir, '{}_skills.json'.format(self.gif_counter))
                     with open(json_name, 'w') as json_file:
                         json.dump(obs_list, json_file)
             if len(self.obs_history) > 0:

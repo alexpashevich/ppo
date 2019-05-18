@@ -72,13 +72,8 @@ class DaskEnv:
         sub_in = Sub('observations')
         self.pub_out = pub_out
         self.sub_in = sub_in
-        # clean the dask pipes
-        try:
-            for _ in range(self.num_processes):
-                unused_env_idx = self.sub_in.get(timeout=5)
-        except gen.TimeoutError:
-            # something went wrong, do it again...
-            self._init_dask()
+        # wait until all the peers are created
+        time.sleep(5)
 
     def step(self, actions):
         for env_idx, action_dict in actions.items():
