@@ -77,9 +77,10 @@ class DaskEnv:
 
     def step(self, actions):
         for env_idx, action_dict in actions.items():
-            if self.action_sent_flags[env_idx] == 1:
-                print('WARNING: an action was ignored!')
-                continue
+            # if self.action_sent_flags[env_idx] == 1:
+            #     print('WARNING: an action was ignored!')
+            #     continue
+            assert self.action_sent_flags[env_idx] == 0
             self.action_sent_flags[env_idx] = 1
             for action_key, action_value in action_dict.items():
                 if isinstance(action_value, torch.Tensor):
@@ -93,12 +94,18 @@ class DaskEnv:
         count_envs = 0
         while True:
             try:
-                env_dict, env_idx = self.sub_in.get(timeout=10)
-            except (gen.TimeoutError, TypeError):
+                env_dict, env_idx = self.sub_in.get(timeout=30)
+            except gen.TimeoutError:
+                # recreate all the workers
                 self._init_dask()
-                self.action_sent_flags[:] = 1
+                # ask them to return observation after the reset with dummy reward, done and info
                 for env_idx in range(self.num_processes):
                     self.pub_out[env_idx].put({'function': 'reset_after_crash'})
+                # start the _get_obs_batch function from scratch
+                self.action_sent_flags[:] = 1
+                count_envs = 0
+                # make the batch to contain all the observations
+                batch_size = self.num_processes
                 continue
 
             assert self.action_sent_flags[env_idx] == 1

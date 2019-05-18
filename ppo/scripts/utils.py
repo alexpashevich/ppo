@@ -143,8 +143,7 @@ def get_policy_values(
 
 def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=False):
     # we expect the action_master to have an action for each env
-    # DaskEnv is taking care of using only those of them which are necessary
-    # TODO: fix this comment here, I am not sure it's true anymore
+    # obs contains observations only for the envs that did a step and need a new skill action
     assert len(action_master.keys()) == envs.num_processes
     info_master = np.array([None] * envs.num_processes)
     done_master = np.array([False] * envs.num_processes)
@@ -152,11 +151,12 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
     #     [action.item() for env_idx, action in sorted(action_master.items())]))
     while True:
         if hrlbc_setup:
-            # get the skill action
+            # get the skill action for env_idx in obs.keys()
             with torch.no_grad():
                 action_skill_dict, env_idxs = policy.get_worker_action(action_master, obs)
         else:
             # create a dictionary out of master action values
+            # TODO: maybe filter the action only for env_idx in obs.keys()
             action_skill_dict = {}
             for env_idx, env_action_master in action_master.items():
                 action_skill_dict[env_idx] = {'skill': env_action_master}
