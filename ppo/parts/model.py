@@ -298,10 +298,6 @@ class ResnetBase(NNBase):
         # we now reshape the observations inside each environment
         # we do not use rnn_hxs but keep it for compatibility
         skills_actions, master_features = self.resnet(inputs)
-        # if actions_memory is not None:
-        #     # agent has a memory, this could be only the master action forward pass
-        #     assert master_action is None
-        #     master_features = torch.cat((master_features, actions_memory), dim=1)
 
         if master_action is None:
             # this is the policy step itself

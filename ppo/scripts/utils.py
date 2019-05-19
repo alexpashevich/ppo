@@ -156,10 +156,10 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
                 action_skill_dict, env_idxs = policy.get_worker_action(action_master, obs)
         else:
             # create a dictionary out of master action values
-            # TODO: maybe filter the action only for env_idx in obs.keys()
             action_skill_dict = {}
             for env_idx, env_action_master in action_master.items():
-                action_skill_dict[env_idx] = {'skill': env_action_master}
+                if env_idx in obs.keys():
+                    action_skill_dict[env_idx] = {'skill': env_action_master}
         obs, reward_envs, done_envs, info_envs = envs.step(action_skill_dict)
         need_master_action = update_master_variables(
             num_envs=envs.num_processes,
