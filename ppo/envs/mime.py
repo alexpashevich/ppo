@@ -12,6 +12,7 @@ from collections import OrderedDict
 from dask.distributed import Pub, Sub
 
 from bc.dataset import Frames, Actions
+from bc.dataset.augmentation import Augmentation
 from ppo.tools import misc
 
 
@@ -45,7 +46,8 @@ class MimeEnv:
             self.channels = ('depth', 'rgb')
         else:
             raise NotImplementedError('Unknown input type = {}'.format(args['input_type']))
-        self.augmentation = args['augmentation']
+        self.augmentation = None
+        self.augmentation_str = args['augmentation']
         self.hrlbc_setup = args['hrlbc_setup']
         self.check_skills_silency = args['check_skills_silency']
         num_skills = args['num_skills']
@@ -129,6 +131,8 @@ class MimeEnv:
             print('env {:02d} is reset after {} timesteps: {}'.format(
                 self.env_idx, step_counter_cached - 1, error_message))
             return obs
+        # define new augmentation path at each reset
+        self.augmentation = Augmentation(self.augmentation_str)
 
     def update_info(self, info):
         info['length'] = self.step_counter
@@ -168,7 +172,8 @@ class MimeEnv:
                 [obs_im],
                 self.channels,
                 Frames.sum_channels(self.channels),
-                augmentation_str=self.augmentation)
+                augmentation_str='',
+                augmentation=self.augmentation)
             if self.gifdir:
                 if 'orig' in self.obs_history:
                     self.obs_history['orig'].append(obs_im['depth'])
