@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from ppo.parts.distributions import Categorical, DiagGaussian
 import ppo.tools.misc as misc
@@ -235,17 +236,12 @@ class ResnetBase(NNBase):
         self.dim_action_seq = self.dim_action * bc_args['steps_action']
         self.num_skills = num_skills
         self.action_memory = action_memory
+        self.master_type = master_type
         self.resnet = bc_model.net.module
         self.resnet.return_features = True
 
         # init_ = lambda m: misc.init(
         #     m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
-
-        # mode = bc_args['mode']
-        # # TODO: maybe remove this assert in the future
-        # assert 'master' in mode
-        # master_head_type = mode.split('master_')[-1]
-        # bc_model_extra_args = net_utils.config_to_params(bc_args['archi'], bc_args['mode'])
 
         self.actor, self.critic = [self._create_head(
             master_type=master_type,
@@ -253,20 +249,6 @@ class ResnetBase(NNBase):
             num_channels=master_num_channels,
             inplanes=bc_args['features_dim'],
             size_conv_filters=master_conv_filters) for _ in range(2)]
-
-        # self.actor = nn.Sequential(
-        #     init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
-        #     nn.Tanh(),
-        #     init_(nn.Linear(hidden_size, hidden_size)),
-        #     nn.Tanh()
-        # )
-
-        # self.critic = nn.Sequential(
-        #     init_(nn.Linear(bc_args['features_dim'] + action_memory, hidden_size)),
-        #     nn.Tanh(),
-        #     init_(nn.Linear(hidden_size, hidden_size)),
-        #     nn.Tanh()
-        # )
 
         init_ = lambda m: misc.init(
             m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
@@ -283,12 +265,9 @@ class ResnetBase(NNBase):
             inplanes=inplanes,
             size_conv_filters=size_conv_filters)
         if master_type == 'fc':
-            head = head_fc
+            return head_fc
         else:
-            head_conv.add_module('4', nn.AvgPool2d(7, stride=1))
-            head_conv.add_module('5', resnet_utils.Flatten())
-            head = head_conv
-        return head
+            return head_conv
 
     @property
     def output_size(self):
@@ -303,6 +282,12 @@ class ResnetBase(NNBase):
             # this is the policy step itself
             hidden_critic = self.critic(master_features.detach())
             hidden_actor = self.actor(master_features.detach())
+            if self.master_type != 'fc':
+                for tensor in (hidden_actor, hidden_critic):
+                    # we assume that both tensors are 7x7 conv activations
+                    assert tensor.shape[2] == 7 and tensor.shape[3] == 7
+                hidden_actor = F.avg_pool2d(hidden_actor, hidden_actor.shape[-1])[..., 0, 0]
+                hidden_critic = F.avg_pool2d(hidden_critic, hidden_critic.shape[-1])[..., 0, 0]
             if actions_memory is not None:
                 actions_memory = 2 * actions_memory / (self.num_skills - 1) - 1
                 hidden_critic = torch.cat((hidden_critic, actions_memory), dim=1)
