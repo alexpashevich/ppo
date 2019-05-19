@@ -182,8 +182,9 @@ def main():
             log.log_train(
                 env_steps, start, stats_global, action_loss, value_loss, dist_entropy, epoch)
             misc.print_gpu_usage(exp_vars.device)
-            imageio.imwrite(os.path.join(logdir, 'eval/obs_{}.png'.format(epoch)),
-                            obs.popitem()[1][0].cpu().numpy())
+            if 'Cam' in args.env_name:
+                imageio.imwrite(os.path.join(logdir, 'eval/obs_{}.png'.format(epoch)),
+                                list(obs.values())[0][0].cpu().numpy())
 
         # evaluating or saving for offline evaluation
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
