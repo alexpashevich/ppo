@@ -135,7 +135,8 @@ class MimeEnv:
             return obs
         # define new augmentation path at each reset
         self.augmentation = Augmentation(self.augmentation_str)
-        augmentation.sample_sequence(img_size=obs['depth0'].shape)
+        # TODO: remove hardcoded value
+        self.augmentation.sample_sequence(img_size=(240, 240))
 
     def update_info(self, info):
         info['length'] = self.step_counter
@@ -173,9 +174,9 @@ class MimeEnv:
                     if im_key in key:
                         obs_im[im_key] = obs_dict[key]
             obs_tensor = Frames.dict_to_tensor(
-                [obs_im],
-                self.channels,
-                Frames.sum_channels(self.channels),
+                frames=[obs_im],
+                channels=self.channels,
+                num_channels=Frames.sum_channels(self.channels),
                 augmentation_str='',
                 augmentation=self.augmentation)
             if self.gifdir:
