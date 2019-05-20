@@ -135,6 +135,7 @@ class MimeEnv:
             return obs
         # define new augmentation path at each reset
         self.augmentation = Augmentation(self.augmentation_str)
+        augmentation.sample_sequence(img_size=obs['depth0'].shape)
 
     def update_info(self, info):
         info['length'] = self.step_counter
