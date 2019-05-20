@@ -217,9 +217,12 @@ class MimeEnv:
                     action = dict(linear_velocity=[0, 0, 0], angular_velocity=[0, 0, 0])
                     self.silency_triggered = True
                     self.need_master_action = True
-            return action
         else:
-            return self.get_script_action(skill)
+            action = self.get_script_action(skill)
+        if self.gifdir and self.need_master_action:
+            self.obs_history['skills'][-1] = (self.obs_history['skills'][-1],
+                                              self.step_counter_after_new_action)
+        return action
 
     def get_script_action(self, skill):
         if self.prev_script != skill:
