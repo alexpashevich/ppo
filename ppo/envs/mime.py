@@ -126,6 +126,8 @@ class MimeEnv:
             if len(self.obs_history) > 0:
                 self.gif_counter += 1
                 self.obs_history = {}
+        # merging of skills 3 and 4 related stuff
+        self.silency_triggered = False
         if reset_mime:
             obs = self.env.reset()
             print('env {:02d} is reset after {} timesteps: {}'.format(
@@ -138,6 +140,7 @@ class MimeEnv:
         info['length'] = self.step_counter
         info['need_master_action'] = self.need_master_action
         info['length_after_new_action'] = self.step_counter_after_new_action
+        info['silency_triggered'] = self.silency_triggered
         if self.need_master_action:
             self.step_counter_after_new_action = 0
         return info
@@ -188,6 +191,7 @@ class MimeEnv:
 
     def get_action_applied(self, action):
         skill = action.pop('skill')[0]
+        self.silency_triggered = False
         if self.step_counter_after_new_action == 1:
             if self.gifdir:
                 if 'skills' in self.obs_history:
@@ -211,6 +215,7 @@ class MimeEnv:
                         print('env {:02d} skips the action {} (ts = {})'.format(
                             self.env_idx, skill, self.step_counter))
                     action = dict(linear_velocity=[0, 0, 0], angular_velocity=[0, 0, 0])
+                    self.silency_triggered = True
                     self.need_master_action = True
             return action
         else:

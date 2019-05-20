@@ -100,6 +100,7 @@ def main():
     epoch, env_steps, env_steps_cached = exp_vars.start_epoch, exp_vars.start_step, exp_vars.start_step
     reward = torch.zeros((args.num_processes, 1)).type_as(obs[0])
     need_master_action, policy_values_cache = np.ones((args.num_processes,)), None
+    skills_34_were_switched = np.zeros(args.num_processes)
     while True:
         print('Starting epoch {}'.format(epoch))
         master_steps_done = 0
@@ -116,8 +117,8 @@ def main():
             policy_values_cache = value, action, action_log_prob, recurrent_hidden_states
 
             # Observe reward and next obs
-            obs, reward, done, infos, need_master_action = utils.do_master_step(
-                action, obs, reward, policy, envs_train, args.hrlbc_setup)
+            obs, reward, done, infos, need_master_action, skills_34_were_switched = utils.do_master_step(
+                action, obs, reward, policy, envs_train, args, skills_34_were_switched)
             master_steps_done += np.sum(need_master_action)
             pbar.update(np.sum(need_master_action))
 

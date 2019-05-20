@@ -106,6 +106,9 @@ def get_args():
                         help='set master number of channels')
     parser.add_argument('--master-conv-filters', type=int, default=3,
                         help='set vision based master layers depth')
+    # tiny little harmless flags
+    parser.add_argument('--merge-skills-3-and-4', action='store_true', default=False,
+                        help='whether to merge skills 3 and 4 inside RL')
 
     args = parser.parse_args()
     assert args.algo == 'ppo'

@@ -107,7 +107,7 @@ def evaluate(policy, args_train, device, envs_train, envs_eval):
 
         # Observe reward and next obs
         obs, reward, done, infos, need_master_action = do_master_step(
-            action, obs, reward, policy, envs_eval, hrlbc_setup=args.hrlbc_setup)
+            action, obs, reward, policy, envs_eval, args)
         memory_actions = update_memory_actions(memory_actions, action, need_master_action, done)
         stats_global, stats_local = stats.update(
             stats_global, stats_local, reward, done, infos, args, overwrite_terminated=False)
@@ -141,7 +141,66 @@ def get_policy_values(
         return value, action, log_prob, recurrent_states
 
 
-def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=False):
+def maybe_merge_skills_3_and_4(
+        action_master, need_master_action, done_envs, info_envs, skills_34_were_switched, args):
+    if not args.merge_skills_3_and_4:
+        return action_master, need_master_action, skills_34_were_switched
+    # action_master_prev = {env_idx: torch.tensor(skill) for env_idx, skill in action_master.items()}
+    for env_idx, skill_tensor in action_master.items():
+        if skill_tensor.item() == 4:
+            if skills_34_were_switched[env_idx] and need_master_action[env_idx]:
+                # we manually switched 3 to 4 earlier
+                # now we want to change the merge_switch_env_idxs to False
+                # let the master choose another action
+                skills_34_were_switched[env_idx] = 0
+                # print('action 4 of env {} is done'.format(env_idx))
+        elif skill_tensor.item() == 3:
+            if need_master_action[env_idx]:
+                assert skills_34_were_switched[env_idx] == 0
+                if done_envs[env_idx]:
+                    # env is done during the skill 3, do nothing
+                    # let the master choose another action
+                    # print('env {} is done during the skill 3'.format(env_idx))
+                    continue
+                if info_envs[env_idx]['silency_triggered']:
+                    # env has triggered the silency condition for the skill 3
+                    # let the master choose another action
+                    # print('env {} skill 3 is silent'.format(env_idx))
+                    continue
+                # env has finished doing the skills 3, switch it to 4 and fool the need_master_action
+                # print('switching for env {}'.format(env_idx))
+                action_master[env_idx] = torch.tensor(skill_tensor + 1)
+                need_master_action[env_idx] = 0
+                skills_34_were_switched[env_idx] = 1
+    # for env_idx, skill_tensor in action_master_prev.items():
+    #     if skill_tensor.item() != action_master[env_idx].item():
+    #         print('action_master = {} after skills merge'.format(
+    #             [action.item() for env_idx, action in sorted(action_master.items())]))
+    #         break
+
+    return action_master, need_master_action, skills_34_were_switched
+
+
+def update_action_master(action_master, skills_34_were_merged, args):
+    if not args.merge_skills_3_and_4:
+        return action_master
+    action_master_copy = {}
+    for env_idx, skill_tensor in action_master.items():
+        if skill_tensor.item() < 3:
+            action_master_copy[env_idx] = torch.tensor(skill_tensor)
+        elif skill_tensor.item() > 3:
+            action_master_copy[env_idx] = torch.tensor(skill_tensor + 1)
+        else:
+            if not skills_34_were_merged[env_idx]:
+                # the master chose skill 3 which should not be changed
+                action_master_copy[env_idx] = torch.tensor(skill_tensor)
+            else:
+                # we manually switched 3 to 4 and want to keep it for now
+                action_master_copy[env_idx] = torch.tensor(skill_tensor + 1)
+    return action_master_copy
+
+
+def do_master_step(action_master, obs, reward_master, policy, envs, args, skills_34_were_switched):
     # we expect the action_master to have an action for each env
     # obs contains observations only for the envs that did a step and need a new skill action
     assert len(action_master.keys()) == envs.num_processes
@@ -149,8 +208,11 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
     done_master = np.array([False] * envs.num_processes)
     # print('action_master = {}'.format(
     #     [action.item() for env_idx, action in sorted(action_master.items())]))
+    action_master = update_action_master(action_master, skills_34_were_switched, args)
+    # print('action_master = {} after shift'.format(
+    #     [action.item() for env_idx, action in sorted(action_master.items())]))
     while True:
-        if hrlbc_setup:
+        if args.hrlbc_setup:
             # get the skill action for env_idx in obs.keys()
             with torch.no_grad():
                 action_skill_dict, env_idxs = policy.get_worker_action(action_master, obs)
@@ -166,10 +228,13 @@ def do_master_step(action_master, obs, reward_master, policy, envs, hrlbc_setup=
             env_idxs=obs.keys(),
             envs_dict={'reward': reward_envs, 'done': done_envs, 'info': info_envs},
             master_dict={'reward': reward_master, 'done': done_master, 'info': info_master})
+        action_master, need_master_action, skills_34_were_switched = maybe_merge_skills_3_and_4(
+                action_master, need_master_action, done_envs, info_envs, skills_34_were_switched, args)
         if np.any(need_master_action):
             break
 
-    return (obs, reward_master, done_master, info_master, need_master_action)
+    # print('need_master_a = {}'.format(need_master_action))
+    return (obs, reward_master, done_master, info_master, need_master_action, skills_34_were_switched)
 
 
 def update_master_variables(num_envs, env_idxs, envs_dict, master_dict):
@@ -208,7 +273,7 @@ def perform_skill_sequence(skill_sequence, observation, policy, envs, args):
         master_action_dict = {env_idx: torch.Tensor([skill_sequence[skill_counter]]).int()
                               for env_idx, skill_counter in enumerate(skill_counters)}
         observation, reward, done, _, need_master_action = do_master_step(
-            master_action_dict, observation, reward, policy, envs, args.hrlbc_setup)
+            master_action_dict, observation, reward, policy, envs, args)
         for env_idx, need_master_action_flag in enumerate(need_master_action):
             if need_master_action_flag:
                 if skill_counters[env_idx] == len(skill_sequence) - 1:
