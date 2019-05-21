@@ -25,6 +25,7 @@ class MimeEnv:
         self.pub_out = Pub('observations')
         self.sub_in = Sub('env{}_input'.format(int(self.env_idx)))
         self.step_counter = 0
+        self.step_counter_after_new_action = 0
         self.reset_env(reset_mime=False)
 
         # make the env to print all the logs
@@ -50,16 +51,14 @@ class MimeEnv:
         self.augmentation_str = args['augmentation']
         self.hrlbc_setup = args['hrlbc_setup']
         self.check_skills_silency = args['check_skills_silency']
-        num_skills = args['num_skills']
         # timescales for skills (hrlbc setup only)
-        self.skills_timescales = args['timescale']
-        if self.hrlbc_setup:
-            assert self.skills_timescales is not None
-        if isinstance(self.skills_timescales, int):
-            skills_timescales = {}
-            for skill in range(num_skills):
-                skills_timescales[str(skill)] = self.skills_timescales
-            self.skills_timescales = skills_timescales
+        assert isinstance(args['timescale'], dict)
+        skills_timescales = {}
+        for skill, mapping in enumerate(args['skills_mapping']):
+            skills_timescales[str(skill)] = sum(
+                [args['timescale'][str(mapped_to)] for mapped_to in mapping])
+        self.skills_timescales = skills_timescales
+        print('skills timescales are {}'.format(skills_timescales))
         # gifs writing
         self.gifdir = None
         if 'gifdir' in args:
@@ -87,7 +86,7 @@ class MimeEnv:
                 obs, reward, done, info = self.env.step(action_applied)
                 info = self.update_info(info)
                 if done:
-                    obs = self.reset_env(error_message=info['failure_message'])
+                    obs = self.reset_env(error_message=info['failure_message'], success=info['success'])
                 self.publish_obs(
                     obs_dict={'observation': obs, 'reward': reward, 'done': done, 'info': info})
             else:
@@ -99,6 +98,7 @@ class MimeEnv:
         env.seed(self.env_idx + seed)
         if hasattr(env.unwrapped.scene, 'set_rl_mode'):
             env.unwrapped.scene.set_rl_mode(hrlbc=self.hrlbc_setup)
+            # env.unwrapped.scene.set_restricted_rand_cam()
         else:
             raise NotImplementedError
         if self.max_length is not None:
@@ -107,8 +107,9 @@ class MimeEnv:
             env.unwrapped.scene.renders(True)
         return env
 
-    def reset_env(self, reset_mime=True, error_message=''):
+    def reset_env(self, reset_mime=True, error_message='', success=False):
         step_counter_cached = self.step_counter
+        step_counter_after_new_action_cached = self.step_counter_after_new_action
         self.step_counter = 0
         self.step_counter_after_new_action = 0
         self.prev_script = None
@@ -120,13 +121,14 @@ class MimeEnv:
                         self.gifdir, '{}_{}.mp4'.format(self.gif_counter, obs_key))
                     write_video(obs_list, gif_name)
                 else:
+                    obs_list[-1] = (obs_list[-1], step_counter_after_new_action_cached)
+                    obs_list.append('Success = {}'.format(success))
                     json_name = os.path.join(self.gifdir, '{}_skills.json'.format(self.gif_counter))
                     with open(json_name, 'w') as json_file:
                         json.dump(obs_list, json_file)
             if len(self.obs_history) > 0:
                 self.gif_counter += 1
                 self.obs_history = {}
-        # merging of skills 3 and 4 related stuff
         self.silency_triggered = False
         if reset_mime:
             obs = self.env.reset()
@@ -192,7 +194,10 @@ class MimeEnv:
         return obs_tensor
 
     def get_action_applied(self, action):
+        # this is the merged skill idx, might be not the same as the env script
         skill = action.pop('skill')[0]
+        # this is the real skill (equals to the env script)
+        skill_real = action.pop('skill_real')[0]
         self.silency_triggered = False
         if self.step_counter_after_new_action == 1:
             if self.gifdir:
@@ -212,15 +217,15 @@ class MimeEnv:
             else:
                 self.need_master_action = False
             if self.check_skills_silency and self.step_counter_after_new_action == 1:
-                if self.env.unwrapped.scene.skill_should_be_silent(skill):
+                if self.env.unwrapped.scene.skill_should_be_silent(skill_real):
                     if self.render:
-                        print('env {:02d} skips the action {} (ts = {})'.format(
-                            self.env_idx, skill, self.step_counter))
+                        print('env {:02d} skips the action {} (real action = {}) (ts = {})'.format(
+                            self.env_idx, skill, skill_real, self.step_counter))
                     action = dict(linear_velocity=[0, 0, 0], angular_velocity=[0, 0, 0])
                     self.silency_triggered = True
                     self.need_master_action = True
         else:
-            action = self.get_script_action(skill)
+            action = self.get_script_action(skill_real)
         if self.gifdir and self.need_master_action:
             self.obs_history['skills'][-1] = (self.obs_history['skills'][-1],
                                               self.step_counter_after_new_action)
@@ -241,6 +246,7 @@ class MimeEnv:
         else:
             self.need_master_action = False
             action_applied.update(Actions.filter_action(action_update, self.action_keys))
+        # TODO: this will check real skill timescales, not the merged one. fix later
         if self.skills_timescales is not None:
             skill_timescale = self.skills_timescales[str(skill)]
             self.need_master_action = self.step_counter_after_new_action >= skill_timescale

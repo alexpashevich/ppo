@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 from ppo.parts.distributions import Categorical, DiagGaussian
 import ppo.tools.misc as misc
@@ -22,9 +23,6 @@ class MasterPolicy(nn.Module):
         self.action_keys = Actions.action_space_to_keys(base_kwargs['bc_args']['action_space'])[0]
         self.statistics = bc_statistics
 
-        if base_kwargs is None:
-            base_kwargs = {}
-
         if len(obs_shape) == 3:
             self.base = ResnetBase(bc_model, **base_kwargs)
             # set the eval mode so the behavior of the skills is the same as in BC training
@@ -43,19 +41,69 @@ class MasterPolicy(nn.Module):
         else:
             raise NotImplementedError
 
+        # skill merging stuff
+        self.skill_timesteps = np.zeros(base_kwargs['num_processes'], dtype=int)
+        self.skill_timescales = base_kwargs['timescale']
+        self.skill_mapping = base_kwargs['skills_mapping']
+
+    def report_skills_switch(self, skills_switched_array):
+        for env_idx, skill_switched in enumerate(skills_switched_array):
+            if skill_switched:
+                self.skill_timesteps[env_idx] = 0
+
+    def map_master_action(self, master_action, env_idxs):
+        # master_action contains actions for each env, env_idxs cotains indices of envs in the batch
+        master_action_real = []
+        for env_idx, skill in master_action.items():
+            if env_idx not in env_idxs:
+                continue
+            # get the real skill corresponding to the one given by the master
+            env_mapping_list = self.skill_mapping[skill.item()]
+
+            # check that the mime and master policy timescales are well synchronized
+            env_timescale_merged_max = sum([
+                self.skill_timescales[str(env_skill_real)] for env_skill_real in env_mapping_list])
+            assert self.skill_timesteps[env_idx] < env_timescale_merged_max
+            # print('skill ts[{}] = {}'.format(env_idx, self.skill_timesteps[env_idx]))
+
+            # get the real action
+            env_skill_counter = 0
+            while True:
+                env_timescale_merged = sum([
+                    self.skill_timescales[str(env_skill_real)]
+                    for env_skill_real in env_mapping_list[:env_skill_counter + 1]])
+                if self.skill_timesteps[env_idx] < env_timescale_merged:
+                    break
+                else:
+                    env_skill_counter += 1
+                assert env_skill_counter < len(env_mapping_list)
+
+            # save the new action in the correct format
+            env_skill_real = env_mapping_list[env_skill_counter]
+            master_action_real.append(torch.tensor([env_skill_real]).type_as(master_action[env_idx]))
+
+            # increment the env timestep counter
+            self.skill_timesteps[env_idx] += 1
+
+        master_action_real = torch.stack(master_action_real)
+        return master_action_real
+
     def get_worker_action(self, master_action, obs_dict):
+        # print('action_master = {}'.format(
+        #     [action.item() for env_idx, action in sorted(master_action.items())]))
         obs_tensor, env_idxs = misc.dict_to_tensor(obs_dict)
-        master_action_filtered = []
-        for env_idx in env_idxs:
-            master_action_filtered.append(master_action[env_idx])
-        master_action_filtered = torch.stack(master_action_filtered)
-        action_tensor = self.base(obs_tensor, None, None, None, master_action=master_action_filtered)
+        master_action_real = self.map_master_action(master_action, env_idxs)
+        # print('action_master_real = {}'.format(
+        #     [action.item() for action in master_action_real]))
+        action_tensor = self.base(obs_tensor, None, None, None, master_action=master_action_real)
         action_tensors_dict, env_idxs = misc.tensor_to_dict(action_tensor, env_idxs)
         action_tensors_dict_numpys = {key: value.cpu().numpy() for key, value in action_tensors_dict.items()}
         action_dicts_dict = {}
+        master_action_real_dict, _ = misc.tensor_to_dict(master_action_real, env_idxs)
         for env_idx, action_tensor in action_tensors_dict_numpys.items():
             action_dict = Actions.tensor_to_dict(action_tensor, self.action_keys, self.statistics)
             action_dict['skill'] = master_action[env_idx].cpu().numpy()
+            action_dict['skill_real'] = master_action_real_dict[env_idx].cpu().numpy()
             action_dicts_dict[env_idx] = action_dict
         return action_dicts_dict, env_idxs
 
@@ -222,7 +270,8 @@ class ResnetBase(NNBase):
     def __init__(
             self,
             bc_model=None,
-            num_skills=4,
+            # num_skills=4,
+            skills_mapping=None,
             recurrent_policy=False,  # is not supported
             action_memory=0,
             bc_args=None,
@@ -235,7 +284,7 @@ class ResnetBase(NNBase):
 
         self.dim_action = bc_args['dim_action'] + 1
         self.dim_action_seq = self.dim_action * bc_args['steps_action']
-        self.num_skills = num_skills
+        self.num_skills = len(skills_mapping)
         self.action_memory = action_memory
         self.resnet = bc_model.net.module
         self.resnet.return_features = True
@@ -273,7 +322,7 @@ class ResnetBase(NNBase):
 
         self.actor, self.critic = [self._create_head(
             master_type=self.master_type,
-            num_skills=num_skills,
+            num_skills=self.num_skills,
             num_channels=master_num_channels,
             inplanes=inplanes,
             size_conv_filters=master_conv_filters) for _ in range(2)]

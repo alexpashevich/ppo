@@ -44,7 +44,7 @@ def init_training(args, logdir):
     envs_train = DaskEnv(args)
 
     # create the policy
-    action_space = Discrete(args.num_skills)
+    action_space = Discrete(len(args.skills_mapping))
     if loaded_dict:
         policy = loaded_dict['policy']
         start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
@@ -94,13 +94,12 @@ def main():
         assert_tensors = utils.create_frozen_skills_check(obs, policy)
 
     if args.pudb:
-        skill_sequence = [5, 0, 0, 1, 2, 3, 4, 4, 6, 0, 0, 1, 2, 3]
+        skill_sequence = [5, 0, 1, 2, 3, 4, 6, 0, 1, 2, 3]
         utils.perform_skill_sequence(skill_sequence, obs, policy, envs_train, args)
         import pudb; pudb.set_trace()
     epoch, env_steps, env_steps_cached = exp_vars.start_epoch, exp_vars.start_step, exp_vars.start_step
     reward = torch.zeros((args.num_processes, 1)).type_as(obs[0])
     need_master_action, policy_values_cache = np.ones((args.num_processes,)), None
-    skills_34_were_switched = np.zeros(args.num_processes)
     while True:
         print('Starting epoch {}'.format(epoch))
         master_steps_done = 0
@@ -117,8 +116,8 @@ def main():
             policy_values_cache = value, action, action_log_prob, recurrent_hidden_states
 
             # Observe reward and next obs
-            obs, reward, done, infos, need_master_action, skills_34_were_switched = utils.do_master_step(
-                action, obs, reward, policy, envs_train, args, skills_34_were_switched)
+            obs, reward, done, infos, need_master_action = utils.do_master_step(
+                action, obs, reward, policy, envs_train, args)
             master_steps_done += np.sum(need_master_action)
             pbar.update(np.sum(need_master_action))
 

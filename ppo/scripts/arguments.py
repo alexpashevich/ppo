@@ -65,8 +65,6 @@ def get_args():
                         help='use the setup with pretrained with BC skills')
     parser.add_argument('--timescale', type=json.loads, default=None,
                         help='dict of timescales corresponding to each skill or the timescale value')
-    parser.add_argument('--num-skills', type=int, default=4,
-                        help='number of skills')
     # BC stuff
     parser.add_argument('--augmentation', type=str, default='',
                         help='which data augmentation to use for the frames')
@@ -107,11 +105,13 @@ def get_args():
     parser.add_argument('--master-conv-filters', type=int, default=3,
                         help='set vision based master layers depth')
     # tiny little harmless flags
-    parser.add_argument('--merge-skills-3-and-4', action='store_true', default=False,
-                        help='whether to merge skills 3 and 4 inside RL')
+    parser.add_argument('--skills-mapping', type=json.loads, default=None,
+                        help='e.g. {"1": [1, 2], "2": [3], "4": [4, 5, 6]}')
 
     args = parser.parse_args()
+    assert args.skills_mapping is not None
     assert args.algo == 'ppo'
+    assert isinstance(args.timescale, dict)
     args.recurrent_policy = False  # turn off recurrent policies support
     args.eval_offline = not args.no_eval_offline
     if args.dask_batch_size is None:
