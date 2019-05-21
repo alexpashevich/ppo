@@ -268,12 +268,13 @@ def update_memory_actions(memory_actions, action, need_master_action, done):
 def perform_skill_sequence(skill_sequence, observation, policy, envs, args):
     reward = torch.zeros((args.num_processes, 1)).type_as(observation[0])
     skill_counters = [0] * args.num_processes
+    skills_34_were_switched = np.zeros(args.num_processes)
     dones = [False] * args.num_processes
     while True:
         master_action_dict = {env_idx: torch.Tensor([skill_sequence[skill_counter]]).int()
                               for env_idx, skill_counter in enumerate(skill_counters)}
-        observation, reward, done, _, need_master_action = do_master_step(
-            master_action_dict, observation, reward, policy, envs, args)
+        observation, reward, done, _, need_master_action, skills_34_were_switched = do_master_step(
+            master_action_dict, observation, reward, policy, envs, args, skills_34_were_switched)
         for env_idx, need_master_action_flag in enumerate(need_master_action):
             if need_master_action_flag:
                 if skill_counters[env_idx] == len(skill_sequence) - 1:

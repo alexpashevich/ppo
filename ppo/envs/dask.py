@@ -79,9 +79,6 @@ class DaskEnv:
         for env_idx, action_dict in actions.items():
             assert self.action_sent_flags[env_idx] == 0
             self.action_sent_flags[env_idx] = 1
-            for action_key, action_value in action_dict.items():
-                if isinstance(action_value, torch.Tensor):
-                    action_dict[action_key] = action_value.cpu().numpy()
             self.pub_out[env_idx].put({'function': 'step',
                                        'action': action_dict})
         return self._get_obs_batch(self.batch_size)

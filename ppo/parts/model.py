@@ -51,10 +51,11 @@ class MasterPolicy(nn.Module):
         master_action_filtered = torch.stack(master_action_filtered)
         action_tensor = self.base(obs_tensor, None, None, None, master_action=master_action_filtered)
         action_tensors_dict, env_idxs = misc.tensor_to_dict(action_tensor, env_idxs)
+        action_tensors_dict_numpys = {key: value.cpu().numpy() for key, value in action_tensors_dict.items()}
         action_dicts_dict = {}
-        for env_idx, action_tensor in action_tensors_dict.items():
+        for env_idx, action_tensor in action_tensors_dict_numpys.items():
             action_dict = Actions.tensor_to_dict(action_tensor, self.action_keys, self.statistics)
-            action_dict['skill'] = master_action[env_idx]
+            action_dict['skill'] = master_action[env_idx].cpu().numpy()
             action_dicts_dict[env_idx] = action_dict
         return action_dicts_dict, env_idxs
 

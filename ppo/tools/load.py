@@ -41,8 +41,8 @@ def bc_checkpoint(args, device):
             loaded_dict = torch.load(args.checkpoint_path)
         args.bc_args = loaded_dict['args']
         print('loaded the BC checkpoint from {}'.format(args.checkpoint_path))
-        statistics = _map_numpy_dict_to_tensors(loaded_dict['statistics'], device)
-        return args, loaded_dict['model'], statistics
+        # statistics = _map_numpy_dict_to_tensors(loaded_dict['statistics'], device)
+        return args, loaded_dict['model'], loaded_dict['statistics']
     else:
         if 'Cam' in args.env_name:
             default_bc_args = dict(
