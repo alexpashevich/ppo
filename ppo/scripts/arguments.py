@@ -110,8 +110,11 @@ def get_args():
 
     args = parser.parse_args()
     assert args.skills_mapping is not None
+    if args.skills_mapping is None:
+        print('WARNING: skills_mapping is not specified')
     assert args.algo == 'ppo'
-    assert isinstance(args.timescale, dict)
+    if not isinstance(args.timescale, dict):
+        print('WARNING: args.timescale is not a dict')
     args.recurrent_policy = False  # turn off recurrent policies support
     args.eval_offline = not args.no_eval_offline
     if args.dask_batch_size is None:
