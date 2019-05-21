@@ -46,6 +46,9 @@ class MasterPolicy(nn.Module):
         self.skill_timescales = base_kwargs['timescale']
         self.skill_mapping = base_kwargs['skills_mapping']
 
+    def reset(self):
+        self.skill_timesteps[:] = 0
+
     def report_skills_switch(self, skills_switched_array):
         for env_idx, skill_switched in enumerate(skills_switched_array):
             if skill_switched:

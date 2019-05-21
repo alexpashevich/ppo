@@ -47,6 +47,7 @@ def init_training(args, logdir):
     action_space = Discrete(len(args.skills_mapping))
     if loaded_dict:
         policy = loaded_dict['policy']
+        policy.reset()
         start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
     else:
         policy = utils.create_policy(args, envs_train, action_space, bc_model, bc_statistics)
