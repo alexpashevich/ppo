@@ -255,13 +255,11 @@ class MimeEnv:
                 if self.render:
                     print('env {:02d} needs a new master action (ts = {})'.format(
                         self.env_idx, self.step_counter))
-                    self.need_master_action = True
-                    self.skill_real_counter = 0
-                else:
-                    self.need_master_action = False
+                self.need_master_action = True
+                self.skill_real_counter = 0
             else:
-                self.skill_real_counter += 1
                 self.need_master_action = False
+                self.skill_real_counter += 1
         else:
             self.need_master_action = False
             action_applied.update(Actions.filter_action(action_update, self.action_keys))
