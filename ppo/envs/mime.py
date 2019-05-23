@@ -249,7 +249,6 @@ class MimeEnv:
         action_chain = itertools.chain(*self.prev_action_chain)
         action_applied = Actions.get_dict_null_action(self.action_keys)
         action_update = next(action_chain, None)
-        print('running action {}'.format(skill_real))
         if action_update is None:
             skill_is_last_of_the_sequence = (self.skill_real_counter == len(skill_sequence) - 1)
             if skill_is_last_of_the_sequence:
