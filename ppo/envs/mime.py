@@ -51,14 +51,21 @@ class MimeEnv:
         self.augmentation_str = args['augmentation']
         self.hrlbc_setup = args['hrlbc_setup']
         self.check_skills_silency = args['check_skills_silency']
-        # timescales for skills (hrlbc setup only)
-        assert isinstance(args['timescale'], dict)
-        skills_timescales = {}
-        for skill, mapping in enumerate(args['skills_mapping']):
-            skills_timescales[str(skill)] = sum(
-                [args['timescale'][str(mapped_to)] for mapped_to in mapping])
-        self.skills_timescales = skills_timescales
-        print('skills timescales are {}'.format(skills_timescales))
+        if self.hrlbc_setup:
+            # timescales for skills (hrlbc setup only)
+            assert isinstance(args['timescale'], dict)
+            skills_timescales = {}
+            for skill, mapping in enumerate(args['skills_mapping']):
+                skills_timescales[str(skill)] = sum(
+                    [args['timescale'][str(mapped_to)] for mapped_to in mapping])
+            self.skills_timescales = skills_timescales
+            print('skills timescales are {}'.format(skills_timescales))
+        else:
+            self.skills_timescales = None
+            self.skills_mapping = args['skills_mapping']
+            for mapping in self.skills_mapping:
+                assert len(set(mapping)) == len(mapping), 'actions in each mapping have to be unique'
+
         # gifs writing
         self.gifdir = None
         if 'gifdir' in args:
@@ -130,6 +137,7 @@ class MimeEnv:
                 self.gif_counter += 1
                 self.obs_history = {}
         self.silency_triggered = False
+        self.skill_real_counter = 0
         if reset_mime:
             obs = self.env.reset()
             print('env {:02d} is reset after {} timesteps: {}'.format(
@@ -197,7 +205,6 @@ class MimeEnv:
         # this is the merged skill idx, might be not the same as the env script
         skill = action.pop('skill')[0]
         # this is the real skill (equals to the env script)
-        skill_real = action.pop('skill_real')[0]
         self.silency_triggered = False
         if self.step_counter_after_new_action == 1:
             if self.gifdir:
@@ -209,6 +216,7 @@ class MimeEnv:
                 print('env {:02d} got a new master action = {} (ts = {})'.format(
                     self.env_idx, skill, self.step_counter))
         if self.hrlbc_setup:
+            skill_real = action.pop('skill_real')[0]
             if self.step_counter_after_new_action >= self.skills_timescales[str(skill)]:
                 if self.render:
                     print('env {:02d} needs a new master action (ts = {})'.format(
@@ -225,29 +233,41 @@ class MimeEnv:
                     self.silency_triggered = True
                     self.need_master_action = True
         else:
-            action = self.get_script_action(skill_real)
+            action = self.get_script_action(skill)
         if self.gifdir and self.need_master_action:
             self.obs_history['skills'][-1] = (self.obs_history['skills'][-1],
                                               self.step_counter_after_new_action)
         return action
 
-    def get_script_action(self, skill):
-        if self.prev_script != skill:
-            self.prev_script = skill
-            self.prev_action_chain = self.env.unwrapped.scene.script_subtask(skill)
+    def get_script_action(self, skill_merged):
+        skill_sequence = self.skills_mapping[skill_merged]
+        skill_real = skill_sequence[self.skill_real_counter]
+
+        if self.prev_script != skill_real:
+            self.prev_script = skill_real
+            self.prev_action_chain = self.env.unwrapped.scene.script_subtask(skill_real)
         action_chain = itertools.chain(*self.prev_action_chain)
         action_applied = Actions.get_dict_null_action(self.action_keys)
         action_update = next(action_chain, None)
+        print('running action {}'.format(skill_real))
         if action_update is None:
-            if self.render:
-                print('env {:02d} needs a new master action (ts = {})'.format(
-                    self.env_idx, self.step_counter))
-            self.need_master_action = True
+            skill_is_last_of_the_sequence = (self.skill_real_counter == len(skill_sequence) - 1)
+            if skill_is_last_of_the_sequence:
+                if self.render:
+                    print('env {:02d} needs a new master action (ts = {})'.format(
+                        self.env_idx, self.step_counter))
+                    self.need_master_action = True
+                    self.skill_real_counter = 0
+                else:
+                    self.need_master_action = False
+            else:
+                self.skill_real_counter += 1
+                self.need_master_action = False
         else:
             self.need_master_action = False
             action_applied.update(Actions.filter_action(action_update, self.action_keys))
-        # TODO: this will check real skill timescales, not the merged one. fix later
+        # TODO: this will read real skills tiemscales, not the scripts. Not true anymore?
         if self.skills_timescales is not None:
-            skill_timescale = self.skills_timescales[str(skill)]
+            skill_timescale = self.skills_timescales[str(skill_merged)]
             self.need_master_action = self.step_counter_after_new_action >= skill_timescale
         return action_applied
