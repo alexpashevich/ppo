@@ -78,7 +78,7 @@ def main():
                 rollouts.get_last(rollouts.actions),
                 rollouts.get_last(rollouts.recurrent_hidden_states),
                 rollouts.get_last(rollouts.masks))
-        rollouts.compute_returns(next_value, args.use_gae, args.gamma, args.tau)
+        rollouts.compute_returns(next_value, args.gamma)
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
 

@@ -106,22 +106,13 @@ class RolloutStorage(object):
         self.masks[0].copy_(self.masks[last_indices])
         self.steps = np.zeros_like(self.steps)
 
-    def compute_returns(self, next_value, use_gae, gamma, tau):
-        if use_gae:
-            raise NotImplementedError
-            self.value_preds[-1] = next_value
-            gae = 0
-            for step in reversed(range(self.rewards.size(0))):
-                delta = self.rewards[step] + gamma * self.value_preds[step + 1] * self.masks[step + 1] - self.value_preds[step]
-                gae = delta + gamma * tau * self.masks[step + 1] * gae
-                self.returns[step] = gae + self.value_preds[step]
-        else:
-            for env_idx in next_value.keys():
-                self.returns[self.steps[env_idx], env_idx] = next_value[env_idx]
-                for step in reversed(range(self.steps[env_idx])):
-                    self.returns[step, env_idx] = self.returns[step + 1, env_idx] * \
-                                         gamma * self.masks[step + 1, env_idx] + \
-                                         self.rewards[step, env_idx]
+    def compute_returns(self, next_value, gamma):
+        for env_idx in next_value.keys():
+            self.returns[self.steps[env_idx], env_idx] = next_value[env_idx]
+            for step in reversed(range(self.steps[env_idx])):
+                self.returns[step, env_idx] = self.returns[step + 1, env_idx] * \
+                                        gamma * self.masks[step + 1, env_idx] + \
+                                        self.rewards[step, env_idx]
 
     def feed_forward_generator(self, advantages, num_mini_batch):
         batch_size = int(np.sum(self.steps))

@@ -51,10 +51,6 @@ def get_args():
     # returns computation
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='discount factor for rewards (default: 0.99)')
-    parser.add_argument('--use-gae', action='store_true', default=False,
-                        help='use generalized advantage estimation')
-    parser.add_argument('--tau', type=float, default=0.95,
-                        help='gae parameter (default: 0.95)')
     # optimizer
     parser.add_argument('--eps', type=float, default=1e-5,
                         help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
