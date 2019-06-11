@@ -101,7 +101,6 @@ def create_rollout_storage(
         args.num_processes,
         envs_train.observation_space.shape,
         action_space,
-        policy.recurrent_hidden_state_size,
         action_memory=args.action_memory)
 
     obs = envs_train.reset()
@@ -114,26 +113,23 @@ def get_policy_values(
         policy,
         obs,
         memory_actions,
-        recurrent_states,
-        masks,
         policy_values_cache,
         need_master_action,
         deterministic=False):
     ''' The function is sampling the policy actions '''
     with torch.no_grad():
-        value_new, action_new, log_prob_new, recurrent_states_new = policy.act(
-            obs, memory_actions, recurrent_states, masks, deterministic)
+        value_new, action_new, log_prob_new = policy.act(
+            obs, memory_actions, deterministic)
 
         if policy_values_cache is None:
-            return value_new, action_new, log_prob_new, recurrent_states_new
+            return value_new, action_new, log_prob_new
 
-        value, action, log_prob, recurrent_states = policy_values_cache
+        value, action, log_prob = policy_values_cache
         for env_idx in np.where(need_master_action)[0]:
             value[env_idx] = value_new[env_idx]
             action[env_idx] = action_new[env_idx]
             log_prob[env_idx] = log_prob_new[env_idx]
-            recurrent_states[env_idx] = recurrent_states_new[env_idx]
-        return value, action, log_prob, recurrent_states
+        return value, action, log_prob
 
 
 def do_master_step(action_master, obs, reward_master, policy, envs, args):

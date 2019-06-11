@@ -9,12 +9,9 @@ class RolloutStorage(object):
                  num_processes,
                  obs_shape,
                  action_space,
-                 recurrent_hidden_state_size,
                  action_memory=0):
         num_steps *= max(int(np.sqrt(num_processes)), 2)
         self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
-        self.recurrent_hidden_states = torch.zeros(
-            num_steps + 1, num_processes, recurrent_hidden_state_size)
         self.rewards = torch.zeros(num_steps, num_processes, 1)
         self.value_preds = torch.zeros(num_steps + 1, num_processes, 1)
         self.returns = torch.zeros(num_steps + 1, num_processes, 1)
@@ -35,7 +32,6 @@ class RolloutStorage(object):
 
     def to(self, device):
         self.obs = self.obs.to(device)
-        self.recurrent_hidden_states = self.recurrent_hidden_states.to(device)
         self.rewards = self.rewards.to(device)
         self.value_preds = self.value_preds.to(device)
         self.returns = self.returns.to(device)
@@ -45,7 +41,6 @@ class RolloutStorage(object):
 
     def insert(self,
                obs,
-               recurrent_hidden_states,
                actions,
                action_log_probs,
                value_preds,
@@ -57,7 +52,6 @@ class RolloutStorage(object):
         for index in indices:
             step_value = self.steps[index]
             self.obs[step_value + 1, index].copy_(obs[index])
-            self.recurrent_hidden_states[step_value + 1, index].copy_(recurrent_hidden_states[index])
             self.actions[step_value, index].copy_(actions[index])
             self.action_log_probs[step_value, index].copy_(action_log_probs[index])
             self.value_preds[step_value, index].copy_(value_preds[index])
@@ -102,7 +96,6 @@ class RolloutStorage(object):
     def after_update(self):
         last_indices = np.stack((self.steps, np.arange(self.steps.shape[0])))
         self.obs[0].copy_(self.obs[last_indices])
-        self.recurrent_hidden_states[0].copy_(self.recurrent_hidden_states[last_indices])
         self.masks[0].copy_(self.masks[last_indices])
         self.steps = np.zeros_like(self.steps)
 
@@ -129,15 +122,13 @@ class RolloutStorage(object):
             # replace the batch indices i by rollouts indices (i, j)
             indices = transitions_ordered_indices[:, indices]
             obs_batch = self.obs[indices]
-            recurrent_hidden_states_batch = self.recurrent_hidden_states[:-1][indices]
             actions_batch = self.actions[indices]
             value_preds_batch = self.value_preds[indices]
             return_batch = self.returns[indices]
-            masks_batch = self.masks[indices]
             old_action_log_probs_batch = self.action_log_probs[indices]
             adv_targ = advantages[indices]
 
             timesteps, env_idxs = indices
             last_actions_batch = self._get_last_actions(timesteps, env_idxs, as_tensor=True)
-            yield obs_batch, last_actions_batch, recurrent_hidden_states_batch, actions_batch, \
-                value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ
+            yield obs_batch, last_actions_batch, actions_batch, \
+                value_preds_batch, return_batch, old_action_log_probs_batch, adv_targ

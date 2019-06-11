@@ -33,15 +33,13 @@ def main():
         master_steps_done = 0
         pbar = tqdm(total=args.num_master_steps_per_update * args.num_processes)
         while master_steps_done < args.num_master_steps_per_update * args.num_processes:
-            value, action, action_log_prob, recurrent_hidden_states = utils.get_policy_values(
+            value, action, action_log_prob = utils.get_policy_values(
                 policy,
                 rollouts.get_last(rollouts.obs),
                 rollouts.get_last(rollouts.actions),
-                rollouts.get_last(rollouts.recurrent_hidden_states),
-                rollouts.get_last(rollouts.masks),
                 policy_values_cache,
                 need_master_action)
-            policy_values_cache = value, action, action_log_prob, recurrent_hidden_states
+            policy_values_cache = value, action, action_log_prob
 
             # Observe reward and next obs
             obs, reward, done, infos, need_master_action = utils.do_master_step(
@@ -59,7 +57,6 @@ def main():
             assert len(set(np.where(need_master_action)[0]).difference(obs.keys())) == 0
             rollouts.insert(
                 obs,
-                recurrent_hidden_states,
                 action,
                 action_log_prob,
                 value,
@@ -75,9 +72,7 @@ def main():
         with torch.no_grad():
             next_value = policy.get_value_detached(
                 rollouts.get_last(rollouts.obs),
-                rollouts.get_last(rollouts.actions),
-                rollouts.get_last(rollouts.recurrent_hidden_states),
-                rollouts.get_last(rollouts.masks))
+                rollouts.get_last(rollouts.actions))
         rollouts.compute_returns(next_value, args.gamma)
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
@@ -97,7 +92,7 @@ def main():
                 imageio.imwrite(os.path.join(logdir, 'eval/obs_{}.png'.format(epoch)),
                                 list(obs.values())[0][0].cpu().numpy())
         epoch += 1
-        if env_steps > args.num_frames:
+        if env_steps > args.num_train_timesteps:
             print('Number of env steps reached the maximum number of frames')
             break
 

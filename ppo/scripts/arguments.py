@@ -18,14 +18,12 @@ def get_args():
                         help='how many training CPU processes to use (default: 16)')
     parser.add_argument('--dask-batch-size', type=int, default=None,
                         help='the envs will be stepped using the batch size (default: 8)')
-    parser.add_argument('--num-frames', type=int, default=30e7,
+    parser.add_argument('--num-train-timesteps', type=int, default=30e7,
                         help='number of frames to train (default: 10e6)')
     parser.add_argument('--max-length', type=int, default=None,
                         help='episodes max length')
     parser.add_argument('--device', type=str, default='cuda',
                         help='which device to run the experiments on: cuda or cpu')
-    parser.add_argument('--add-timestep', action='store_true', default=False,
-                        help='add timestep to observations')
     parser.add_argument('--input-type', type=str, default='depth',
                         help='type of input for the conv nets')
     parser.add_argument('--action-memory', type=int, default=0,
@@ -59,15 +57,13 @@ def get_args():
                         help='use the setup with pretrained with BC skills')
     parser.add_argument('--timescale', type=json.loads, default=None,
                         help='dict of timescales corresponding to each skill or the timescale value')
-    # BC stuff
+    # BC parameters
     parser.add_argument('--augmentation', type=str, default='',
                         help='which data augmentation to use for the frames')
-    # BC skills
     parser.add_argument('--checkpoint-path', type=str, default=None,
                         help='if specified, load the networks weights from the file')
     parser.add_argument('--check-skills-silency', action='store_true', default=False,
                         help='whether to check skill silency condition (only works for salad)')
-    # full state stuff
     parser.add_argument('--mime-action-space', type=str, default=None,
                         help='number of last actions to pass to the agent')
     # logging
@@ -95,13 +91,12 @@ def get_args():
 
     args = parser.parse_args()
     assert args.skills_mapping is not None
+    if args.dask_batch_size is None:
+        args.dask_batch_size = max(1, int(args.num_processes / 2))
     if args.skills_mapping is None:
         print('WARNING: skills_mapping is not specified')
     if not isinstance(args.timescale, dict):
         print('WARNING: args.timescale is not a dict')
-    args.recurrent_policy = False  # turn off recurrent policies support
-    if args.dask_batch_size is None:
-        args.dask_batch_size = max(1, int(args.num_processes / 2))
     if args.num_master_steps_per_update is None:
         print('WARNING: num_master_steps_per_update is not specified')
 

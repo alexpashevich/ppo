@@ -7,7 +7,6 @@ from ppo.parts.distributions import Categorical, DiagGaussian
 import ppo.tools.misc as misc
 
 from bc.dataset import Actions
-from bc.net.architectures import utils as net_utils
 from bc.net.architectures.resnet import utils as resnet_utils
 
 
@@ -110,13 +109,10 @@ class MasterPolicy(nn.Module):
             action_dicts_dict[env_idx] = action_dict
         return action_dicts_dict, env_idxs
 
-    def act(self, inputs, memory_actions, rnn_hxs, masks, deterministic=False):
+    def act(self, inputs, memory_actions, deterministic=False):
         inputs, env_idxs = misc.dict_to_tensor(inputs)
-        value, actor_features, rnn_hxs = self.base(
-            inputs,
-            misc.dict_to_tensor(memory_actions)[0],
-            misc.dict_to_tensor(rnn_hxs)[0],
-            misc.dict_to_tensor(masks)[0])
+        value, actor_features = self.base(
+            inputs, misc.dict_to_tensor(memory_actions)[0])
         dist = self.dist(actor_features)
 
         if deterministic:
@@ -127,108 +123,41 @@ class MasterPolicy(nn.Module):
 
         return (misc.tensor_to_dict(value, env_idxs)[0],
                 misc.tensor_to_dict(action, env_idxs)[0],
-                misc.tensor_to_dict(action_log_probs, env_idxs)[0],
-                misc.tensor_to_dict(rnn_hxs, env_idxs)[0])
+                misc.tensor_to_dict(action_log_probs, env_idxs)[0])
 
-    def get_value_detached(self, inputs, actions, rnn_hxs, masks):
+    def get_value_detached(self, inputs, actions):
         inputs, env_idxs = misc.dict_to_tensor(inputs)
         value, _, _ = self.base(
-            inputs,
-            misc.dict_to_tensor(actions)[0],
-            misc.dict_to_tensor(rnn_hxs)[0],
-            misc.dict_to_tensor(masks)[0])
+            inputs, misc.dict_to_tensor(actions)[0])
         return misc.tensor_to_dict(value.detach(), env_idxs)[0]
 
-    def evaluate_actions(self, inputs, actions, rnn_hxs, masks, action):
+    def evaluate_actions(self, inputs, actions_memory, action_master):
         ''' This function is called from the PPO update so all the arguments are tensors. '''
-        value, actor_features, rnn_hxs = self.base(inputs, actions, rnn_hxs, masks)
+        value, actor_features = self.base(inputs, actions_memory)
         dist = self.dist(actor_features)
-
-        action_log_probs = dist.log_probs(action)
+        action_log_probs = dist.log_probs(action_master)
         dist_entropy = dist.entropy().mean()
 
-        return value, action_log_probs, dist_entropy, rnn_hxs
-
-    @property
-    def is_recurrent(self):
-        return self.base.is_recurrent
-
-    @property
-    def recurrent_hidden_state_size(self):
-        """Size of rnn_hx."""
-        return self.base.recurrent_hidden_state_size
-
-    def forward(self, inputs, rnn_hxs, masks):
-        raise NotImplementedError
+        return value, action_log_probs, dist_entropy
 
 
 class NNBase(nn.Module):
-    def __init__(self, recurrent, recurrent_input_size, hidden_size):
+    def __init__(self, hidden_size):
         super(NNBase, self).__init__()
-
         self._hidden_size = hidden_size
-        self._recurrent = recurrent
-
-        if recurrent:
-            self.gru = nn.GRUCell(recurrent_input_size, hidden_size)
-            nn.init.orthogonal_(self.gru.weight_ih.data)
-            nn.init.orthogonal_(self.gru.weight_hh.data)
-            self.gru.bias_ih.data.fill_(0)
-            self.gru.bias_hh.data.fill_(0)
-
-    @property
-    def is_recurrent(self):
-        return self._recurrent
-
-    @property
-    def recurrent_hidden_state_size(self):
-        if self._recurrent:
-            return self._hidden_size
-        return 1
 
     @property
     def output_size(self):
         return self._hidden_size
 
-    def _forward_gru(self, x, hxs, masks):
-        if x.size(0) == hxs.size(0):
-            x = hxs = self.gru(x, hxs * masks)
-        else:
-            # x is a (T, N, -1) tensor that has been flatten to (T * N, -1)
-            N = hxs.size(0)
-            T = int(x.size(0) / N)
-
-            # unflatten
-            x = x.view(T, N, x.size(1))
-
-            # Same deal with masks
-            masks = masks.view(T, N, 1)
-
-            outputs = []
-            for i in range(T):
-                hx = hxs = self.gru(x[i], hxs * masks[i])
-                outputs.append(hx)
-
-            # assert len(outputs) == T
-            # x is a (T, N, -1) tensor
-            x = torch.stack(outputs, dim=0)
-            # flatten
-            x = x.view(T * N, -1)
-
-        return x, hxs
-
 
 class MLPBase(NNBase):
     def __init__(self,
                  num_inputs,
-                 recurrent_policy=False,
                  hidden_size=64,
                  action_memory=0,
                  **kwargs):
-        super(MLPBase, self).__init__(recurrent_policy, num_inputs, hidden_size)
-
-        if recurrent_policy:
-            num_inputs = hidden_size
+        super(MLPBase, self).__init__(hidden_size)
 
         init_ = lambda m: misc.init(m,
             misc.init_normc_,
@@ -252,21 +181,18 @@ class MLPBase(NNBase):
 
         self.train()
 
-    def forward(self, inputs, actions, rnn_hxs, masks):
-        if actions is not None:
+    def forward(self, inputs, actions_memory):
+        if actions_memory is not None:
             # agent has a memory
-            x = torch.cat((inputs, actions), dim=1)
+            x = torch.cat((inputs, actions_memory), dim=1)
         else:
             # the input is the frames stack
             x = inputs
 
-        if self.is_recurrent:
-            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
-
         hidden_critic = self.critic(x)
         hidden_actor = self.actor(x)
 
-        return self.critic_linear(hidden_critic), hidden_actor, rnn_hxs
+        return self.critic_linear(hidden_critic), hidden_actor
 
 
 class ResnetBase(NNBase):
@@ -275,15 +201,13 @@ class ResnetBase(NNBase):
             bc_model=None,
             # num_skills=4,
             skills_mapping=None,
-            recurrent_policy=False,  # is not supported
             action_memory=0,
             bc_args=None,
             master_type='conv',
             master_num_channels=64,
             master_conv_filters=1,
             **unused_kwargs):
-        super(ResnetBase, self).__init__(
-            recurrent_policy, master_num_channels, master_num_channels)
+        super(ResnetBase, self).__init__(master_num_channels)
 
         self.dim_action = bc_args['dim_action'] + 1
         self.dim_action_seq = self.dim_action * bc_args['steps_action']
@@ -356,9 +280,8 @@ class ResnetBase(NNBase):
         else:
             return self._hidden_size
 
-    def forward(self, inputs, actions_memory, unused_rnn_hxs, unused_masks, master_action=None):
+    def forward(self, inputs, actions_memory, master_action=None):
         # we now reshape the observations inside each environment
-        # we do not use rnn_hxs but keep it for compatibility
         skills_actions, master_features = self.resnet(inputs)
 
         if master_action is None:
@@ -384,7 +307,7 @@ class ResnetBase(NNBase):
                 hidden_critic = self.critic_extra_fc(hidden_critic)
                 hidden_actor = self.actor_extra_fc(hidden_actor)
 
-            return self.critic_linear(hidden_critic), hidden_actor, unused_rnn_hxs
+            return self.critic_linear(hidden_critic), hidden_actor
         else:
             # we want the skill actions
             # master_action: num_processes x 1
