@@ -1,196 +1,208 @@
 import os
 import time
 import torch
-import copy
+import imageio
 import numpy as np
-from gym.spaces import Discrete
+from tqdm import tqdm
+from gym.spaces import Discrete, Box
+from termcolor import colored
+from argparse import Namespace
 
-
-import ppo.algo as algo
-import ppo.tools.utils as utils
-import ppo.tools.log as log
-import ppo.tools.stats as stats
-import ppo.tools.gifs as gifs
+import bc.utils.misc as bc_misc
+from ppo.tools import misc
+from ppo.tools import log
+from ppo.tools import load
+from ppo.tools import stats
+from ppo.scripts import utils
+from ppo.envs.dask import DaskEnv
 from ppo.scripts.arguments import get_args
-from ppo.tools.envs import make_vec_envs, make_env
-from ppo.parts.model import Policy, MasterPolicy
-from ppo.parts.storage import RolloutStorage
 
 
-def create_envs(args, device):
-    args.render = False
-    envs = make_vec_envs(
-        args.env_name, args.seed, args.num_processes, args.gamma,
-        args.add_timestep, device, False, env_config=args)
-    return envs
+def init_training(args, logdir):
+    # get the device before loading to enable the GPU/CPU transfer
+    device = torch.device(bc_misc.get_device(args.device))
+    print('Running the experiments on {}'.format(device))
 
-
-def create_render_env(args, device):
-    args.render = True
-    from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
-    env_render_train = SubprocVecEnv([
-        make_env(args.env_name, args.seed, 0, args.add_timestep, False, args)])
-    args_eval = copy.deepcopy(args)
-    # make the evaluation horizon longer (if eval_max_length_factor > 1)
-    args_eval.max_length = int(args.max_length * args.eval_max_length_factor)
-    env_render_eval = SubprocVecEnv([
-        make_env(args.env_name, args.seed + args.num_processes, 0, args.add_timestep, False, args_eval)])
-    return env_render_train, env_render_eval
-
-
-def create_policy(args, envs, device, action_space):
-    policy = MasterPolicy(envs.observation_space.shape, action_space, base_kwargs=vars(args))
-    if args.checkpoint_path:
-        utils.load_from_checkpoint(policy, args.checkpoint_path, device)
-    return policy
-
-
-def create_agent(args, policy):
-    agent = algo.PPO(
-        policy, args.clip_param, args.ppo_epoch, args.num_mini_batch, args.value_loss_coef,
-        args.entropy_coef, lr=args.lr, eps=args.eps, max_grad_norm=args.max_grad_norm)
-    return agent
-
-
-def _perform_actions(action_sequence, observation, policy, envs, env_render, args):
-    # observation = envs.reset()
-    # if env_render:
-    #     env_render.reset()
-    if args.save_gifs:
-        gifs_global, gifs_local = gifs.init(args.num_processes)
-        done_before = np.array([False] * args.num_processes, dtype=np.bool)
+    # try to load from a checkpoint
+    loaded_dict = load.ppo_model(logdir, device)
+    if loaded_dict:
+        args = loaded_dict['args']
     else:
-        gifs_global = None
-    for action in action_sequence:
-        master_action_numpy = [[action] for _ in range(observation.shape[0])]
-        master_action = torch.Tensor(master_action_numpy).int()
-        observation, reward, done, _, observation_history = utils.do_master_step(
-            master_action, observation, args.timescale, policy, envs,
-            args.hrlbc_setup,
-            env_render=env_render,
-            return_observations=True)
-        # TODO: change the gifs writing. so far works only when envs are done after the actions
-        if args.save_gifs:
-            gifs_global, gifs_local = gifs.update(
-                gifs_global, gifs_local, torch.tensor(master_action_numpy), done, done_before,
-                observation_history)
-            done_before = np.logical_or(done, done_before)
-        print('reward = {}'.format(reward[:, 0]))
-    if args.save_gifs:
-        gifs.save(os.path.join(args.logdir, args.timestamp), gifs_global, epoch=-1)
+        args, bc_model, bc_statistics = load.bc_checkpoint(args, device)
+    misc.seed_exp(args)
+    log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
+    if args.write_gifs:
+        args.gifdir = os.path.join(logdir, 'gifs')
+        print('Gifs will be written to {}'.format(args.gifdir))
+        if not os.path.exists(args.gifdir):
+            os.mkdir(args.gifdir)
+            for env_idx in range(args.num_processes):
+                if not os.path.exists(os.path.join(args.gifdir, '{:02d}'.format(env_idx))):
+                    os.mkdir(os.path.join(args.gifdir, '{:02d}'.format(env_idx)))
+
+    # create the parallel envs
+    envs_train = DaskEnv(args)
+
+    # create the policy
+    action_space = Discrete(len(args.skills_mapping))
+    if loaded_dict:
+        policy = loaded_dict['policy']
+        policy.reset()
+        start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
+    else:
+        policy = utils.create_policy(args, envs_train, action_space, bc_model, bc_statistics)
+        start_step, start_epoch = 0, 0
+    policy.to(device)
+
+    # create the PPO algo
+    agent = utils.create_agent(args, policy)
+
+    if loaded_dict:
+        # load normalization and optimizer statistics
+        envs_train.obs_running_stats = loaded_dict['obs_running_stats']
+        load.optimizer(agent.optimizer, loaded_dict['optimizer_state_dict'], device)
+
+    exp_dict = dict(
+        device=device,
+        envs_train=envs_train,
+        start_epoch=start_epoch,
+        start_step=start_step,
+        action_space=action_space,
+    )
+
+    # create or load stats
+    if loaded_dict:
+        stats_global, stats_local = loaded_dict['stats_global'], loaded_dict['stats_local']
+    else:
+        stats_global, stats_local = stats.init(args.num_processes)
+
+    return args, policy, agent, stats_global, stats_local, Namespace(**exp_dict)
 
 
 def main():
     args = get_args()
-    render = args.render
     logdir = os.path.join(args.logdir, args.timestamp)
-    # get the device before loading to enable the GPU/CPU transfer
-    device = utils.get_device(args.device)
-    print('Running the experiments on {}'.format(device))
-    # try to load from a checkpoint
-    loaded, loaded_tuple = utils.try_to_load_model(logdir)
-    if loaded:
-        policy, optimizer_state_dict, ob_rms, start_epoch, args = loaded_tuple
-    utils.seed_torch(args)
-    log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
+    args, policy, agent, stats_global, stats_local, exp_vars = init_training(args, logdir)
+    misc.print_gpu_usage(exp_vars.device)
+    envs_train, envs_eval = exp_vars.envs_train, None
+    action_space_skills = Box(-np.inf, np.inf, (args.bc_args['dim_action'],), dtype=np.float)
+    rollouts, obs = utils.create_rollout_storage(
+        args, envs_train, policy, exp_vars.action_space, action_space_skills, exp_vars.device)
 
-    # create the parallel envs
-    envs = create_envs(args, device)
-    eval_envs = None
-    env_render_train, env_render_eval = create_render_env(args, device) if render else (None, None)
-    # create the policy
-    action_space = Discrete(args.num_skills)
-    if not loaded:
-        policy = create_policy(args, envs, device, action_space)
-        start_epoch = 0
-    policy.to(device)
-    # create the PPO algo
-    agent = create_agent(args, policy)
-
-    if loaded:
-        # load normalization and optimizer statistics
-        utils.load_ob_rms(ob_rms, envs)
-        utils.load_optimizer(agent.optimizer, optimizer_state_dict, device)
-
-    num_updates = int(args.num_frames) // args.num_frames_per_update // args.num_processes
-    num_master_steps_per_update = args.num_frames_per_update // args.timescale
-    rollouts = RolloutStorage(
-        num_master_steps_per_update, args.num_processes, envs.observation_space.shape,
-        action_space, policy.recurrent_hidden_state_size)
-
-    obs = envs.reset()
-    if env_render_train:
-        env_render_train.reset()
-    rollouts.obs[0].copy_(obs)
-    rollouts.to(device)
-
-    stats_global, stats_local = stats.init(args.num_processes)
     start = time.time()
 
-    # GT to check whether the skills stay unchanged
     if hasattr(policy.base, 'resnet'):
-        test_tensor = obs.clone()
-        policy.base.resnet.eval()
-        skills_check, feat_check = policy.base.resnet(test_tensor)
+        assert_tensors = utils.create_frozen_skills_check(obs, policy)
+
     if args.pudb:
-        # you can call, e.g. perform_actions([0, 0, 1, 2, 3]) in the terminal
-        _perform_actions([4,0,2,1,3,5,0,2,1,3], obs, policy, envs, None, args)
+        skill_sequence = [5, 0, 1, 2, 3, 4, 6, 0, 1, 2, 3]
+        utils.perform_skill_sequence(skill_sequence, obs, policy, envs_train, args)
         import pudb; pudb.set_trace()
-    for epoch in range(start_epoch, num_updates):
+    epoch, env_steps, env_steps_cached = exp_vars.start_epoch, exp_vars.start_step, exp_vars.start_step
+    reward = torch.zeros((args.num_processes, 1)).type_as(obs[0])
+    need_master_action, policy_values_cache = np.ones((args.num_processes,)), None
+    while True:
         print('Starting epoch {}'.format(epoch))
-        for step in range(num_master_steps_per_update):
-            # Sample actions
-            with torch.no_grad():
-                value, action, action_log_prob, recurrent_hidden_states = policy.act(
-                    rollouts.obs[step], rollouts.recurrent_hidden_states[step], rollouts.masks[step])
+        master_steps_done = 0
+        pbar = tqdm(total=args.num_master_steps_per_update * args.num_processes)
+        while master_steps_done < args.num_master_steps_per_update * args.num_processes:
+            value, action, action_log_prob, recurrent_hidden_states = utils.get_policy_values(
+                policy,
+                rollouts.get_last(rollouts.obs),
+                rollouts.get_last(rollouts.actions),
+                rollouts.get_last(rollouts.recurrent_hidden_states),
+                rollouts.get_last(rollouts.masks),
+                policy_values_cache,
+                need_master_action)
+            policy_values_cache = value, action, action_log_prob, recurrent_hidden_states
 
             # Observe reward and next obs
-            obs, reward, done, infos = utils.do_master_step(
-                action, rollouts.obs[step], args.timescale, policy, envs,
-                args.hrlbc_setup, env_render_train)
-            obs = utils.reset_early_terminated_envs(envs, env_render_train, done, obs, device)
+            obs, reward, done, infos, need_master_action = utils.do_master_step(
+                action, obs, reward, policy, envs_train, args)
+            master_steps_done += np.sum(need_master_action)
+            pbar.update(np.sum(need_master_action))
 
             stats_global, stats_local = stats.update(
                 stats_global, stats_local, reward, done, infos, args)
 
             # If done then clean the history of observations.
-            masks = torch.FloatTensor([[0.0] if done_ else [1.0] for done_ in done])
-            rollouts.insert(obs, recurrent_hidden_states, action, action_log_prob, value, reward, masks)
+            masks = {i: torch.FloatTensor([0.0] if done_ else [1.0]) for i, done_ in enumerate(done)}
+            # check that the obs dictionary contains obs from all envs that will be stored in rollouts
+            # we only store observations from envs which need a master action
+            assert len(set(np.where(need_master_action)[0]).difference(obs.keys())) == 0
+            rollouts.insert(
+                obs,
+                recurrent_hidden_states,
+                action,
+                action_log_prob,
+                value,
+                reward,
+                masks,
+                indices=np.where(need_master_action)[0])
+            reward[np.where(done)] = 0
+            env_steps += sum([info['length_after_new_action']
+                              for info in np.array(infos)[np.where(need_master_action)[0]]])
+        pbar.close()
 
+        env_steps_new = env_steps - env_steps_cached
+        env_steps_cached = env_steps
+        print('Environment steps per 1 master step (in average): {:.1f}'.format(
+            env_steps_new / master_steps_done))
+        print('Environment steps per process (in average): {:.1f} (max_length = {})'.format(
+            env_steps_new / args.num_processes, args.max_length))
+        if (env_steps_new / args.num_processes / args.max_length > 1.5 or
+            env_steps_new / args.num_processes / args.max_length < 0.5):
+            print(colored((
+                'Ratio of average number of environment steps per max-length is {:.2f}, ' +
+                'consider changing --max-length or --num-master-steps-per-update').format(
+                    env_steps_new / args.num_processes / args.max_length), 'yellow'))
+
+        # master policy training
         with torch.no_grad():
-            next_value = policy.get_value(
-                rollouts.obs[-1], rollouts.recurrent_hidden_states[-1], rollouts.masks[-1]).detach()
-
+            next_value = policy.get_value_detached(
+                rollouts.get_last(rollouts.obs),
+                rollouts.get_last(rollouts.actions),
+                rollouts.get_last(rollouts.recurrent_hidden_states),
+                rollouts.get_last(rollouts.masks))
         rollouts.compute_returns(next_value, args.use_gae, args.gamma, args.tau)
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
 
-        # check if the skills do not change by the RL training
+        # assert that the skills have not been changed by ppo
         if hasattr(policy.base, 'resnet'):
-            skills_after_upd, feat_after_upd = policy.base.resnet(test_tensor)
-            assert np.all(skills_after_upd == skills_check) and np.all(feat_after_upd == feat_check)
+            utils.do_frozen_skills_check(policy, *assert_tensors)
 
+        # saving the model
         if epoch % args.save_interval == 0:
-            log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
+            log.save_model(
+                logdir, policy, agent.optimizer, epoch, env_steps, exp_vars.device, envs_train, args,
+                stats_global, stats_local)
 
-        total_num_env_steps = (epoch + 1) * args.num_processes * args.num_frames_per_update
-
+        # logging
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
-                total_num_env_steps, start, stats_global, action_loss,
-                value_loss, dist_entropy)
+                env_steps, start, stats_global, action_loss, value_loss, dist_entropy, epoch)
+            misc.print_gpu_usage(exp_vars.device)
+            if 'Cam' in args.env_name:
+                imageio.imwrite(os.path.join(logdir, 'eval/obs_{}.png'.format(epoch)),
+                                list(obs.values())[0][0].cpu().numpy())
 
+        # evaluating or saving for offline evaluation
         is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
-        if render or (len(stats_global['length']) > 0 and is_eval_time):
-            log.save_model(logdir, policy, agent.optimizer, epoch, device, envs, args, eval=True)
+        if len(stats_global['length']) > 0 and is_eval_time:
+            log.save_model(
+                logdir, policy, agent.optimizer, epoch, env_steps, exp_vars.device, envs_train, args,
+                stats_global, stats_local)
             if not args.eval_offline:
-                eval_envs, stats_eval, gifs_eval = utils.evaluate(
-                    policy, args, device, envs, eval_envs, env_render_eval)
-                log.log_eval(total_num_env_steps, stats_eval)
-                if gifs_eval:
-                    gifs.save(logdir, gifs_eval, epoch)
+                envs_eval, stats_eval = utils.evaluate(
+                    policy, args, exp_vars.device, envs_train, envs_eval)
+                log.log_eval(env_steps, stats_eval)
             else:
                 print('Saving the model after epoch {} for the offline evaluation'.format(epoch))
+        epoch += 1
+        if env_steps > args.num_frames:
+            print('Number of env steps reached the maximum number of frames')
+            break
 
 
 if __name__ == "__main__":

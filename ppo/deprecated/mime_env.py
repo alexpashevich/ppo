@@ -1,34 +1,39 @@
 import gym
 import itertools
-import numpy as np
 import json
 import os
+import numpy as np
+import pickle as pkl
 
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from gym.spaces import Box, Discrete
-from copy import deepcopy
-from torchvision import transforms
+from io import BytesIO
 
 from mime.agent.agent import Agent
+from bc.dataset import Frames
 
 
-SUPPORTED_MIME_ENVS = 'UR5-BowlEnv-v0', 'UR5-BowlCamEnv-v0', 'UR5-SaladEnv-v0', 'UR5-SaladCamEnv-v0'
+SUPPORTED_MIME_ENVS = 'Bowl', 'Salad', 'SimplePour', 'SimplePourNoDrops'
 
 class MiMEEnv(object):
     def __init__(self, env_name, config, id=0):
-        assert env_name in SUPPORTED_MIME_ENVS
+        assert any([env_prefix in env_name for env_prefix in SUPPORTED_MIME_ENVS])
 
         self.env_name = env_name
         self.env = gym.make(env_name)
         if 'max_length' in vars(config) and config.max_length is not None:
             self.env._max_episode_steps = config.max_length
+        if hasattr(self.env.unwrapped.scene, 'set_rl_mode'):
+            self.env.unwrapped.scene.set_rl_mode()
+        else:
+            print('WARNING: the scene does not have set_rl_mode function')
         self.num_skills = vars(config).get('num_skills', 4)
-        self.timescale = vars(config).get('timescale', 25)
         self._render = vars(config).get('render', False) and id == 0
         self._id = id
         self.hrlbc_setup = vars(config).get('hrlbc_setup', False)
-        # pure PPO baseline
         self.observation_type = vars(config).get('input_type', 'depth')
+        self.augmentation = vars(config).get('augmentation', '')
+        self.num_frames_stacked = vars(config).get('num_channels', 3)
         # some copypasting
         self.reward_range = self.env.reward_range
         self.metadata = self.env.metadata
@@ -47,16 +52,21 @@ class MiMEEnv(object):
                 config.checkpoint_path)
         else:
             self.action_mean, self.action_std = None, None
-
-        self.image_transform = transforms.Compose([transforms.ToPILImage(),
-                                                   # transforms.Resize([224, 224]),
-                                                   transforms.ToTensor(),
-                                                   transforms.Normalize((0.5, 0.5), (0.5, 0.5))])
+        # now we work with the frames directly here
+        self.frames_stack = deque(maxlen=self.num_frames_stacked)
+        self.compress_frames = vars(config).get('compress_frames', False)
+        # timescales for skills (hrlbc setup only)
+        self.skills_timescales = vars(config).get('timescale', 50)
+        if isinstance(self.skills_timescales, int):
+            skills_timescales = {}
+            for skill in range(self.num_skills):
+                skills_timescales[str(skill)] = self.skills_timescales
+            self.skills_timescales = skills_timescales
 
     def _load_action_stats(self, checkpoint_path):
         checkpoint_dir = '/'.join(checkpoint_path.split('/')[:-1])
         infos_path = os.path.join(checkpoint_dir, 'info.json')
-        stats = json.load(open(infos_path, 'r'))['statistics'][0]
+        stats = json.load(open(infos_path, 'r'))['statistics']
         # get network dataset statistics
         mean, std = {}, {}
         for action_key in self.action_keys:
@@ -65,20 +75,30 @@ class MiMEEnv(object):
 
     @property
     def observation_space(self):
-        if self.env_name == 'UR5-BowlEnv-v0':
-            return Box(-np.inf, np.inf, (19,), dtype=np.float)
-        elif self.env_name == 'UR5-SaladEnv-v0':
-            num_cups, num_drops = self.env.unwrapped.scene._n_cups, self.env.unwrapped.scene._num_drops
-            num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
-            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
-        elif 'Cam' in self.env_name:
+        if 'Cam' in self.env_name:
             if self.observation_type == 'depth':
-                observation_dim = 1
+                observation_dim = 1 * self.num_frames_stacked
             elif self.observation_type == 'rgbd':
-                observation_dim = 4
+                observation_dim = 4 * self.num_frames_stacked
             else:
                 raise NotImplementedError
             return Box(-np.inf, np.inf, (observation_dim, 224, 224), dtype=np.float)
+        elif 'Bowl' in self.env_name:
+            return Box(-np.inf, np.inf, (19,), dtype=np.float)
+        elif 'Salad' in self.env_name:
+            num_cups = self.env.unwrapped.scene._num_cups
+            num_drops = self.env.unwrapped.scene._num_drops
+            num_features = 32 + 10 * num_cups + 3 * num_drops * num_cups
+            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
+        elif 'SimplePour' in self.env_name:
+            if 'NoDrops' in self.env_name:
+                num_drops = 0
+            else:
+                num_drops = 5
+            num_features = 16 + 3 * num_drops
+            return Box(-np.inf, np.inf, (num_features,), dtype=np.float)
+        else:
+            raise NotImplementedError
 
     @property
     def action_space(self):
@@ -87,7 +107,7 @@ class MiMEEnv(object):
         else:
             return Box(-np.inf, np.inf, (self.dim_skill_action,), dtype=np.float)
 
-    def _obs_dict_to_numpy(self, obs_dict):
+    def _process_obs(self, obs_dict):
         if 'Cam' not in self.env_name:
             observation = np.array([])
             obs_sorted = OrderedDict(sorted(obs_dict.items(), key=lambda t: t[0]))
@@ -102,20 +122,22 @@ class MiMEEnv(object):
                     observation = np.concatenate((observation, obs_value))
         else:
             if self.observation_type == 'depth':
-                obs_keys = ('depth0',)
+                channels = ('depth',)
             elif self.observation_type == 'rgbd':
-                obs_keys = ('rgb0', 'depth0')
-            observation = []
-            for obs_key in obs_keys:
-                # this might be the depth channel or the rgb whole
-                obs_big = obs_dict[obs_key]
-                if len(obs_big.shape) == 2:
-                    # transforms.ToPILImage expects 3D tensor, so we use [None]
-                    obs_big = obs_big[..., None]
-                # we remove the extra dim with [0] afterwards
-                obs_transformed = self.image_transform(obs_big).numpy()
-                observation.append(obs_transformed)
-            observation = np.concatenate(observation, axis=0)
+                channels = ('depth', 'rgb')
+            obs_im = {}
+            for channel in channels:
+                obs_im[channel] = obs_dict['{}0'.format(channel)].copy()
+            if 'mask0' in obs_dict:
+                obs_im['mask'] = obs_dict['mask0'].copy()
+            self.frames_stack.append(obs_im)
+            while len(self.frames_stack) < self.num_frames_stacked:
+                # if this is the first observation after reset
+                self.frames_stack.append(obs_im)
+            observation = Frames.dic_to_tensor(
+                self.frames_stack, channels, Frames.sum_channels(channels),
+                augmentation_str=self.augmentation)
+            observation = self._compress_frames(observation)
         return observation
 
     def _get_null_action_dict(self):
@@ -147,7 +169,7 @@ class MiMEEnv(object):
                 action_dict[action_key] = action_value
             else:
                 action_value = -1 + 2 * (action[0] > action[1])
-                action_dict['grip_velocity'] = action_value * 2
+                action_dict['grip_velocity'] = action_value * 4
         return action_dict
 
     def _filter_action(self, action):
@@ -162,32 +184,67 @@ class MiMEEnv(object):
     def _get_action_applied(self, action):
         # get the action either from numpy or from a script
         if self.hrlbc_setup:
-            action_applied = self._action_numpy_to_dict(action)
+            real_action, skill = action[:-1], int(action[-1])
+            action_applied = self._action_numpy_to_dict(real_action)
+            skill_timescale = self.skills_timescales[str(skill)]
+            if self._step_counter_after_new_action >= skill_timescale:
+                # print('env {} needs a new master action (skill = {}, ts = {})'.format(
+                #     self._id, skill, self._step_counter_after_new_action))
+                self._need_master_action = True
+                self._step_counter_after_new_action = 0
+            else:
+                self._need_master_action = False
         else:
             if self._prev_script != action:
+                if self._render:
+                    print('got a new script for env {}'.format(self._id))
                 self._prev_script = action
                 self._prev_action_chain = self.env.unwrapped.scene.script_subtask(action)
             action_chain = itertools.chain(*self._prev_action_chain)
             action_applied = self._get_null_action_dict()
-            action_update = self._filter_action(next(action_chain, action_applied))
-            action_applied.update(action_update)
+            action_update = next(action_chain, None)
+            if action_update is None:
+                # print('env {} needs a new master action'.format(self._id))
+                self._need_master_action = True
+                self._step_counter_after_new_action = 0
+            else:
+                self._need_master_action = False
+                action_applied.update(self._filter_action(action_update))
         return action_applied
+
+    def _compress_frames(self, frames):
+        if self.compress_frames and 'Cam' in self.env_name:
+            buffer = BytesIO()
+            pkl.dump(frames.numpy(), buffer)
+            frames = buffer.getvalue()
+        return frames
 
     def step(self, action):
         action_applied = self._get_action_applied(action)
+        # action_applied = {'linear_velocity': action[:3],
+        #                   'angular_velocity': action[3:6]}
         obs, reward, done, info = self.env.step(action_applied)
-        observation = self._obs_dict_to_numpy(obs)
+        observation = self._process_obs(obs)
         if len(info['failure_message']):
             print('env {} failure {}'.format(self._id, info['failure_message']))
+        self._step_counter += 1
+        self._step_counter_after_new_action += 1
+        info['need_master_action'] = self._need_master_action
+        info['length'] = self._step_counter
+        info['length_after_new_action'] = self._step_counter_after_new_action
         return observation, reward, done, info
 
     def reset(self):
+        self._need_master_action = True
+        self._step_counter, self._step_counter_after_new_action = 0, 0
+        self.frames_stack.clear()
         self._prev_script = None
         print('env {} is reset'.format(self._id))
         if self._render:
             print('env is reset')
         obs = self.env.reset()
-        return self._obs_dict_to_numpy(obs)
+        observation = self._process_obs(obs)
+        return observation
 
     def seed(self, seed):
         self.env.seed(seed)

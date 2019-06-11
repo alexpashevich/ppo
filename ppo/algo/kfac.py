@@ -5,9 +5,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from ppo.tools.utils import AddBias
+from ppo.tools.misc import AddBias
 
-# TODO: In order to make this code faster:
+# In order to make this code faster:
 # 1) Implement _extract_patches as a single cuda kernel
 # 2) Compute QR decomposition in a separate process
 # 3) Actually make a general KFAC optimizer so it fits PyTorch

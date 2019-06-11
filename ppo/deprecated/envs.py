@@ -50,9 +50,6 @@ def make_vec_envs(env_name, seed, num_processes, gamma, add_timestep,
 
     envs = VecPyTorch(envs, device)
 
-    if 'Cam' in env_name:
-        envs = VecPyTorchFrameStack(envs, 3, device)
-
     return envs
 
 
@@ -96,7 +93,6 @@ class VecPyTorch(VecEnvWrapper):
         """Return only every `skip`-th frame"""
         super(VecPyTorch, self).__init__(venv)
         self.device = device
-        # TODO: Fix data types
 
     def reset(self):
         obs = self.venv.reset()
@@ -115,7 +111,6 @@ class VecPyTorch(VecEnvWrapper):
 
 
 class VecNormalize(VecNormalize_):
-
     def __init__(self, *args, **kwargs):
         super(VecNormalize, self).__init__(*args, **kwargs)
         self.training = True

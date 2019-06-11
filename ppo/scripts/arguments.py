@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import json
 
 
 def get_args():
@@ -17,6 +18,8 @@ def get_args():
                         help='whether to stop the execution for manual commands')
     parser.add_argument('--num-processes', type=int, default=16,
                         help='how many training CPU processes to use (default: 16)')
+    parser.add_argument('--dask-batch-size', type=int, default=None,
+                        help='the envs will be stepped using the batch size (default: 8)')
     parser.add_argument('--num-frames', type=int, default=30e7,
                         help='number of frames to train (default: 10e6)')
     parser.add_argument('--max-length', type=int, default=None,
@@ -27,6 +30,8 @@ def get_args():
                         help='add timestep to observations')
     parser.add_argument('--input-type', type=str, default='depth',
                         help='type of input for the conv nets')
+    parser.add_argument('--action-memory', type=int, default=0,
+                        help='number of last actions to pass to the agent')
     # RL algorithm hyperparameters
     parser.add_argument('--lr', type=float, default=7e-4,
                         help='learning rate (default: 7e-4)')
@@ -34,12 +39,12 @@ def get_args():
                         help='number of ppo epochs (default: 4)')
     parser.add_argument('--num-mini-batch', type=int, default=16,
                         help='number of batches for ppo (default: 32)')
-    parser.add_argument('--num-frames-per-update', type=int, default=None,
+    parser.add_argument('--num-master-steps-per-update', type=int, default=None,
                         help='number of forward steps in A2C (default: 5)')
     # loss and clippings
-    parser.add_argument('--value-loss-coef', type=float, default=0.5,
+    parser.add_argument('--value-loss-coef', type=float, default=1.,
                         help='value loss coefficient (default: 0.5)')
-    parser.add_argument('--entropy-coef', type=float, default=0.01,
+    parser.add_argument('--entropy-coef', type=float, default=0.05,
                         help='entropy term coefficient (default: 0.01)')
     parser.add_argument('--max-grad-norm', type=float, default=0.5,
                         help='max norm of gradients (default: 0.5)')
@@ -58,29 +63,27 @@ def get_args():
     # hieararchy
     parser.add_argument('--hrlbc-setup', action='store_true', default=False,
                         help='use the setup with pretrained with BC skills')
-    parser.add_argument('--timescale', type=int, default=25,
-                        help='master timescale')
-    parser.add_argument('--num-skills', type=int, default=4,
-                        help='number of skills')
-    parser.add_argument('--no-skip-unused-obs', action='store_true', default=False,
-                        help='whether to render the observations not used by master (scripted setup)')
-    # BC skills settings (should match the BC checkpoint)
+    parser.add_argument('--timescale', type=json.loads, default=None,
+                        help='dict of timescales corresponding to each skill or the timescale value')
+    # BC stuff
+    parser.add_argument('--augmentation', type=str, default='',
+                        help='which data augmentation to use for the frames')
+    # BC skills
     parser.add_argument('--checkpoint-path', type=str, default=None,
                         help='if specified, load the networks weights from the file')
-    parser.add_argument('--archi', type=str, default='resnet18_featbranch',
-                        help='which architecture to use (from bc.net.architectures.resnet)')
-    parser.add_argument('--dim-skill-action', type=int, default=8,
-                        help='dimensionality of a skill action')
-    parser.add_argument('--num-skill-action-pred', type=int, default=4,
-                        help='number of future actions predicted')
+    parser.add_argument('--check-skills-silency', action='store_true', default=False,
+                        help='whether to check skill silency condition (only works for salad)')
+    # full state stuff
+    parser.add_argument('--mime-action-space', type=str, default=None,
+                        help='number of last actions to pass to the agent')
     # evaluation
-    parser.add_argument('--num-eval-episodes', type=int, default=16,
+    parser.add_argument('--num-eval-episodes', type=int, default=8,
                         help='number of episodes to use in evaluation')
     parser.add_argument('--eval-interval', type=int, default=10,
                         help='eval interval, one eval per n updates (default: None)')
     parser.add_argument('--eval-max-length-factor', type=float, default=1.0,
                         help='horizon for eval episodes is the max length (train) multiplied by this')
-    parser.add_argument('--eval-offline', action='store_true', default=False,
+    parser.add_argument('--no-eval-offline', action='store_true', default=False,
                         help='whether to only save the eval checkpoints for the offline evaluation')
     # logging
     parser.add_argument('--logdir', default='./logs/',
@@ -90,20 +93,33 @@ def get_args():
                         help='timestep for a given training')
     parser.add_argument('--log-interval', type=int, default=1,
                         help='log interval, one log per n updates (default: 10)')
-    parser.add_argument('--save-interval', type=int, default=5,
+    parser.add_argument('--save-interval', type=int, default=2,
                         help='save interval, one save per n updates (default: 100)')
-    parser.add_argument('--save-gifs', action='store_true', default=False,
-                        help='whether to save the gifs of the evaluation environments')
-    # pure PPO baseline
-    parser.add_argument('--use-direct-actions', action='store_true', default=False,
-                        help='whether to directly use RL to command the agent (no master)')
-    parser.add_argument('--pretrained', action='store_true', default=False,
-                        help='whether to use the pretrained ImageNet layers of ResNet')
+    parser.add_argument('--write-gifs', action='store_true', default=False,
+                        help='whether to write ALL environments gifs to $LOGDIR/gifs')
+    # master head
+    parser.add_argument('--master-type', type=str, default='conv',
+                        help='set vision based master head type')
+    parser.add_argument('--master-num-channels', type=int, default=64,
+                        help='set master number of channels')
+    parser.add_argument('--master-conv-filters', type=int, default=3,
+                        help='set vision based master layers depth')
+    # tiny little harmless flags
+    parser.add_argument('--skills-mapping', type=json.loads, default=None,
+                        help='e.g. {"1": [1, 2], "2": [3], "4": [4, 5, 6]}')
 
     args = parser.parse_args()
+    assert args.skills_mapping is not None
+    if args.skills_mapping is None:
+        print('WARNING: skills_mapping is not specified')
+    assert args.algo == 'ppo'
+    if not isinstance(args.timescale, dict):
+        print('WARNING: args.timescale is not a dict')
     args.recurrent_policy = False  # turn off recurrent policies support
-    args.skip_unused_obs = not args.no_skip_unused_obs  # only works for the scripted setup
-    if args.num_frames_per_update is None:
-        args.num_frames_per_update = args.max_length
+    args.eval_offline = not args.no_eval_offline
+    if args.dask_batch_size is None:
+        args.dask_batch_size = max(1, int(args.num_processes / 2))
+    if args.num_master_steps_per_update is None:
+        print('WARNING: num_master_steps_per_update is not specified')
 
     return args

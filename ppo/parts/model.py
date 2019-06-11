@@ -1,26 +1,30 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import transforms
+import numpy as np
 
 from ppo.parts.distributions import Categorical, DiagGaussian
-from ppo.tools.utils import init, init_normc_
+import ppo.tools.misc as misc
 
-from bc.net.architectures import resnet
+from bc.dataset import Actions
+from bc.net.architectures import utils as net_utils
+from bc.net.architectures.resnet import utils as resnet_utils
+
 
 class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
 
-class Policy(nn.Module):
-    def __init__(self, obs_shape, action_space, base_kwargs=None):
-        super(Policy, self).__init__()
-        if base_kwargs is None:
-            base_kwargs = {}
+
+class MasterPolicy(nn.Module):
+    def __init__(self, obs_shape, action_space, bc_model, bc_statistics, **base_kwargs):
+        super(MasterPolicy, self).__init__()
+
+        self.action_keys = Actions.action_space_to_keys(base_kwargs['bc_args']['action_space'])[0]
+        self.statistics = bc_statistics
 
         if len(obs_shape) == 3:
-            # self.base = CNNBase(obs_shape[0], **base_kwargs)
-            self.base = ResnetBase(obs_shape[0], **base_kwargs)
+            self.base = ResnetBase(bc_model, **base_kwargs)
             # set the eval mode so the behavior of the skills is the same as in BC training
             self.base.resnet.eval()
         elif len(obs_shape) == 1:
@@ -37,6 +41,114 @@ class Policy(nn.Module):
         else:
             raise NotImplementedError
 
+        # skill merging stuff
+        self.skill_timesteps = np.zeros(base_kwargs['num_processes'], dtype=int)
+        self.skill_timescales = base_kwargs['timescale']
+        self.skill_mapping = base_kwargs['skills_mapping']
+
+    def reset(self):
+        self.skill_timesteps[:] = 0
+
+    def report_skills_switch(self, skills_switched_array):
+        for env_idx, skill_switched in enumerate(skills_switched_array):
+            if skill_switched:
+                self.skill_timesteps[env_idx] = 0
+
+    def map_master_action(self, master_action, env_idxs):
+        # master_action contains actions for each env, env_idxs cotains indices of envs in the batch
+        master_action_real = []
+        for env_idx, skill in master_action.items():
+            if env_idx not in env_idxs:
+                continue
+            # get the real skill corresponding to the one given by the master
+            env_mapping_list = self.skill_mapping[skill.item()]
+
+            # check that the mime and master policy timescales are well synchronized
+            env_timescale_merged_max = sum([
+                self.skill_timescales[str(env_skill_real)] for env_skill_real in env_mapping_list])
+            assert self.skill_timesteps[env_idx] < env_timescale_merged_max
+            # print('skill ts[{}] = {}'.format(env_idx, self.skill_timesteps[env_idx]))
+
+            # get the real action
+            env_skill_counter = 0
+            while True:
+                env_timescale_merged = sum([
+                    self.skill_timescales[str(env_skill_real)]
+                    for env_skill_real in env_mapping_list[:env_skill_counter + 1]])
+                if self.skill_timesteps[env_idx] < env_timescale_merged:
+                    break
+                else:
+                    env_skill_counter += 1
+                assert env_skill_counter < len(env_mapping_list)
+
+            # save the new action in the correct format
+            env_skill_real = env_mapping_list[env_skill_counter]
+            master_action_real.append(torch.tensor([env_skill_real]).type_as(master_action[env_idx]))
+
+            # increment the env timestep counter
+            self.skill_timesteps[env_idx] += 1
+
+        master_action_real = torch.stack(master_action_real)
+        return master_action_real
+
+    def get_worker_action(self, master_action, obs_dict):
+        # print('action_master = {}'.format(
+        #     [action.item() for env_idx, action in sorted(master_action.items())]))
+        obs_tensor, env_idxs = misc.dict_to_tensor(obs_dict)
+        master_action_real = self.map_master_action(master_action, env_idxs)
+        # print('action_master_real = {}'.format(
+        #     [action.item() for action in master_action_real]))
+        action_tensor = self.base(obs_tensor, None, None, None, master_action=master_action_real)
+        action_tensors_dict, env_idxs = misc.tensor_to_dict(action_tensor, env_idxs)
+        action_tensors_dict_numpys = {key: value.cpu().numpy() for key, value in action_tensors_dict.items()}
+        action_dicts_dict = {}
+        master_action_real_dict, _ = misc.tensor_to_dict(master_action_real, env_idxs)
+        for env_idx, action_tensor in action_tensors_dict_numpys.items():
+            action_dict = Actions.tensor_to_dict(action_tensor, self.action_keys, self.statistics)
+            action_dict['skill'] = master_action[env_idx].cpu().numpy()
+            action_dict['skill_real'] = master_action_real_dict[env_idx].cpu().numpy()
+            action_dicts_dict[env_idx] = action_dict
+        return action_dicts_dict, env_idxs
+
+    def act(self, inputs, memory_actions, rnn_hxs, masks, deterministic=False):
+        inputs, env_idxs = misc.dict_to_tensor(inputs)
+        value, actor_features, rnn_hxs = self.base(
+            inputs,
+            misc.dict_to_tensor(memory_actions)[0],
+            misc.dict_to_tensor(rnn_hxs)[0],
+            misc.dict_to_tensor(masks)[0])
+        dist = self.dist(actor_features)
+
+        if deterministic:
+            action = dist.mode()
+        else:
+            action = dist.sample()
+        action_log_probs = dist.log_probs(action)
+
+        return (misc.tensor_to_dict(value, env_idxs)[0],
+                misc.tensor_to_dict(action, env_idxs)[0],
+                misc.tensor_to_dict(action_log_probs, env_idxs)[0],
+                misc.tensor_to_dict(rnn_hxs, env_idxs)[0])
+
+    def get_value_detached(self, inputs, actions, rnn_hxs, masks):
+        inputs, env_idxs = misc.dict_to_tensor(inputs)
+        value, _, _ = self.base(
+            inputs,
+            misc.dict_to_tensor(actions)[0],
+            misc.dict_to_tensor(rnn_hxs)[0],
+            misc.dict_to_tensor(masks)[0])
+        return misc.tensor_to_dict(value.detach(), env_idxs)[0]
+
+    def evaluate_actions(self, inputs, actions, rnn_hxs, masks, action):
+        ''' This function is called from the PPO update so all the arguments are tensors. '''
+        value, actor_features, rnn_hxs = self.base(inputs, actions, rnn_hxs, masks)
+        dist = self.dist(actor_features)
+
+        action_log_probs = dist.log_probs(action)
+        dist_entropy = dist.entropy().mean()
+
+        return value, action_log_probs, dist_entropy, rnn_hxs
+
     @property
     def is_recurrent(self):
         return self.base.is_recurrent
@@ -49,45 +161,8 @@ class Policy(nn.Module):
     def forward(self, inputs, rnn_hxs, masks):
         raise NotImplementedError
 
-    def act(self, inputs, rnn_hxs, masks, deterministic=False):
-        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
-        dist = self.dist(actor_features)
-
-        if deterministic:
-            action = dist.mode()
-        else:
-            action = dist.sample()
-
-        action_log_probs = dist.log_probs(action)
-        dist_entropy = dist.entropy().mean()
-
-        return value, action, action_log_probs, rnn_hxs
-
-    def get_value(self, inputs, rnn_hxs, masks):
-        value, _, _ = self.base(inputs, rnn_hxs, masks)
-        return value
-
-    def evaluate_actions(self, inputs, rnn_hxs, masks, action):
-        value, actor_features, rnn_hxs = self.base(inputs, rnn_hxs, masks)
-        dist = self.dist(actor_features)
-
-        action_log_probs = dist.log_probs(action)
-        dist_entropy = dist.entropy().mean()
-
-        return value, action_log_probs, dist_entropy, rnn_hxs
-
-
-class MasterPolicy(Policy):
-    def __init__(self, obs_shape, action_space, base_kwargs=None):
-        super(MasterPolicy, self).__init__(obs_shape, action_space, base_kwargs)
-
-    def get_worker_action(self, master_action, observation):
-        worker_action = self.base(observation, None, None, master_action=master_action)
-        return worker_action
-
 
 class NNBase(nn.Module):
-
     def __init__(self, recurrent, recurrent_input_size, hidden_size):
         super(NNBase, self).__init__()
 
@@ -143,64 +218,31 @@ class NNBase(nn.Module):
         return x, hxs
 
 
-class CNNBase(NNBase):
-    def __init__(self, num_inputs, recurrent=False, hidden_size=512, **kwargs):
-        super(CNNBase, self).__init__(recurrent, hidden_size, hidden_size)
-
-        init_ = lambda m: init(m,
-            nn.init.orthogonal_,
-            lambda x: nn.init.constant_(x, 0),
-            nn.init.calculate_gain('relu'))
-
-        self.main = nn.Sequential(
-            init_(nn.Conv2d(num_inputs, 32, 8, stride=4)),
-            nn.ReLU(),
-            init_(nn.Conv2d(32, 64, 4, stride=2)),
-            nn.ReLU(),
-            init_(nn.Conv2d(64, 32, 3, stride=1)),
-            nn.ReLU(),
-            Flatten(),
-            init_(nn.Linear(32 * 7 * 7, hidden_size)),
-            nn.ReLU()
-        )
-
-        init_ = lambda m: init(m,
-            nn.init.orthogonal_,
-            lambda x: nn.init.constant_(x, 0))
-
-        self.critic_linear = init_(nn.Linear(hidden_size, 1))
-
-        self.train()
-
-    def forward(self, inputs, rnn_hxs, masks):
-        x = self.main(inputs / 255.0)
-
-        if self.is_recurrent:
-            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
-
-        return self.critic_linear(x), x, rnn_hxs
-
-
 class MLPBase(NNBase):
-    def __init__(self, num_inputs, recurrent_policy=False, hidden_size=64, **kwargs):
+    def __init__(self,
+                 num_inputs,
+                 recurrent_policy=False,
+                 hidden_size=64,
+                 action_memory=0,
+                 **kwargs):
         super(MLPBase, self).__init__(recurrent_policy, num_inputs, hidden_size)
 
         if recurrent_policy:
             num_inputs = hidden_size
 
-        init_ = lambda m: init(m,
-            init_normc_,
+        init_ = lambda m: misc.init(m,
+            misc.init_normc_,
             lambda x: nn.init.constant_(x, 0))
 
         self.actor = nn.Sequential(
-            init_(nn.Linear(num_inputs, hidden_size)),
+            init_(nn.Linear(num_inputs + action_memory, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
         )
 
         self.critic = nn.Sequential(
-            init_(nn.Linear(num_inputs, hidden_size)),
+            init_(nn.Linear(num_inputs + action_memory, hidden_size)),
             nn.Tanh(),
             init_(nn.Linear(hidden_size, hidden_size)),
             nn.Tanh()
@@ -210,8 +252,13 @@ class MLPBase(NNBase):
 
         self.train()
 
-    def forward(self, inputs, rnn_hxs, masks):
-        x = inputs
+    def forward(self, inputs, actions, rnn_hxs, masks):
+        if actions is not None:
+            # agent has a memory
+            x = torch.cat((inputs, actions), dim=1)
+        else:
+            # the input is the frames stack
+            x = inputs
 
         if self.is_recurrent:
             x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
@@ -225,102 +272,127 @@ class MLPBase(NNBase):
 class ResnetBase(NNBase):
     def __init__(
             self,
-            num_inputs,
-            num_skills=4,
-            dim_skill_action=4,
-            num_skill_action_pred=1,
+            bc_model=None,
+            # num_skills=4,
+            skills_mapping=None,
             recurrent_policy=False,  # is not supported
-            hidden_size=64,
-            archi='resnet18',
-            pretrained=False,
-            **kwargs):
-        super(ResnetBase, self).__init__(recurrent_policy, hidden_size, hidden_size)
+            action_memory=0,
+            bc_args=None,
+            master_type='conv',
+            master_num_channels=64,
+            master_conv_filters=1,
+            **unused_kwargs):
+        super(ResnetBase, self).__init__(
+            recurrent_policy, master_num_channels, master_num_channels)
 
-        self.num_skills = num_skills
-        self.dim_skill_action = dim_skill_action
-        self.num_skill_action_pred = num_skill_action_pred
-        num_outputs_resnet = self.num_skills * dim_skill_action * num_skill_action_pred
-        if 'use_direct_actions' in kwargs and kwargs['use_direct_actions']:
-            num_outputs_resnet = dim_skill_action
-        self.resnet = getattr(resnet, archi)(
-            pretrained=pretrained,
-            input_dim=num_inputs,
-            num_classes=num_outputs_resnet,  # dim_action in ResNet
-            num_skills=num_skills,
-            dim_action=dim_skill_action*num_skill_action_pred,  # dim_action in ResNetBranch
-            return_features=True)
+        self.dim_action = bc_args['dim_action'] + 1
+        self.dim_action_seq = self.dim_action * bc_args['steps_action']
+        self.num_skills = len(skills_mapping)
+        self.action_memory = action_memory
+        self.resnet = bc_model.net.module
+        self.resnet.return_features = True
 
-        self._transform = transforms.Compose([transforms.ToPILImage(),
-                                              transforms.Resize([224, 224]),
-                                              transforms.ToTensor(),
-                                              transforms.Normalize((0.5, 0.5), (0.5, 0.5)),
-                                              ])
+        # init_ = lambda m: misc.init(
+        #     m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
 
-        init_ = lambda m: init(m,
-            nn.init.orthogonal_,
-            lambda x: nn.init.constant_(x, 0))
+        if '/' in master_type:
+            self.master_type, self.master_type_memory = master_type.split('/')
+        else:
+            self.master_type, self.master_type_memory = master_type, 'normal'
 
-        self.actor = nn.Sequential(
-            Flatten(),
-            init_(nn.Linear(512, hidden_size)),
-            nn.Tanh(),
-            init_(nn.Linear(hidden_size, hidden_size)),
-            nn.Tanh()
-        )
+        assert self.master_type_memory in ('normal', 'extra_fc_concat', 'extra_fc_memory', 'conv_stack')
+        if self.master_type_memory != 'normal':
+            assert self.action_memory > 0
 
-        self.critic = nn.Sequential(
-            Flatten(),
-            init_(nn.Linear(512, hidden_size)),
-            nn.Tanh(),
-            init_(nn.Linear(hidden_size, hidden_size)),
-            nn.Tanh()
-        )
+        if self.master_type_memory == 'extra_fc_concat':
+            # apply 1 FC layer on top of the concatenation of skills and memory
+            self.actor_extra_fc = nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(self._hidden_size + self.action_memory, master_num_channels))
+            self.critic_extra_fc = nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(self._hidden_size + self.action_memory, master_num_channels))
+        if self.master_type_memory == 'extra_fc_memory':
+            # apply 1 FC layer on top of the memory and concatenate it with the vision output
+            self.memory_extra_fc = nn.Sequential(
+                nn.Linear(self.action_memory, self.action_memory),
+                nn.ReLU())
 
-        init_ = lambda m: init(m,
-            nn.init.orthogonal_,
-            lambda x: nn.init.constant_(x, 0))
+        inplanes = bc_args['features_dim']
+        if self.master_type_memory == 'conv_stack':
+            # make a tensor of action_memory x 7 x 7 and stack it to the conv activations
+            inplanes += self.action_memory
 
-        self.critic_linear = init_(nn.Linear(hidden_size, 1))
+        self.actor, self.critic = [self._create_head(
+            master_type=self.master_type,
+            num_skills=self.num_skills,
+            num_channels=master_num_channels,
+            inplanes=inplanes,
+            size_conv_filters=master_conv_filters) for _ in range(2)]
+
+        init_ = lambda m: misc.init(
+            m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
+
+        self.critic_linear = init_(nn.Linear(self.output_size, 1))
 
         self.train()
 
-    def forward(self, inputs, unused_rnn_hxs, unused_masks, master_action=None):
-        # inputs_reshaped = inputs_reshaped.type_as(inputs)
-        # we now reshape the observations inside each environment, remove this code later
-        # inputs_reshaped = []
-        # for depth_maps_stack in inputs:
-        #     depth_maps_reshaped_stack = []
-        #     for depth_map in depth_maps_stack:
-        #         # 1) transforms.ToPILImage expects 3D tensor, so we use [None]
-        #         # 2) transforms.ToPILImage expects image between 0. and 1.
-        #         # 3) we remove the extra dim with [0] afterwards
-        #         depth_maps_reshaped_stack.append(self._transform(depth_map.cpu()[None] / 255)[0])
-        #     inputs_reshaped.append(torch.stack(depth_maps_reshaped_stack))
-        # inputs_reshaped = torch.stack(inputs_reshaped)
+    def _create_head(self, master_type, num_skills, num_channels, inplanes, size_conv_filters):
+        head_conv, head_fc = resnet_utils.make_master_head(
+            master_head_type=master_type,
+            num_skills=num_skills,
+            num_channels=num_channels,
+            inplanes=inplanes,
+            size_conv_filters=size_conv_filters)
+        if master_type == 'fc':
+            return head_fc
+        else:
+            return head_conv
+
+    @property
+    def output_size(self):
+        if self.master_type_memory in ('normal', 'extra_fc_memory'):
+            return self._hidden_size + self.action_memory
+        else:
+            return self._hidden_size
+
+    def forward(self, inputs, actions_memory, unused_rnn_hxs, unused_masks, master_action=None):
+        # we now reshape the observations inside each environment
         # we do not use rnn_hxs but keep it for compatibility
-        all_skills_actions, features = self.resnet(inputs)
+        skills_actions, master_features = self.resnet(inputs)
+
         if master_action is None:
             # this is the policy step itself
-            hidden_critic = self.critic(features.detach())
-            hidden_actor = self.actor(features.detach())
+            if self.master_type_memory == 'conv_stack':
+                actions_memory = actions_memory[..., None, None].repeat(1, 1, 7, 7)
+                master_features = torch.cat((master_features, actions_memory), dim=1)
+            hidden_critic = self.critic(master_features.detach())
+            hidden_actor = self.actor(master_features.detach())
+            if self.master_type != 'fc':
+                for tensor in (hidden_actor, hidden_critic):
+                    # we assume that both tensors are 7x7 conv activations
+                    assert tensor.shape[2] == 7 and tensor.shape[3] == 7
+                hidden_critic = F.avg_pool2d(hidden_critic, hidden_critic.shape[-1])[..., 0, 0]
+                hidden_actor = F.avg_pool2d(hidden_actor, hidden_actor.shape[-1])[..., 0, 0]
+            if actions_memory is not None and self.master_type_memory != 'conv_stack':
+                actions_memory = 2 * actions_memory / (self.num_skills - 1) - 1
+                if self.master_type_memory == 'extra_fc_memory':
+                    actions_memory = self.memory_extra_fc(actions_memory)
+                hidden_critic = torch.cat((hidden_critic, actions_memory), dim=1)
+                hidden_actor = torch.cat((hidden_actor, actions_memory), dim=1)
+            if self.master_type_memory == 'extra_fc_concat':
+                hidden_critic = self.critic_extra_fc(hidden_critic)
+                hidden_actor = self.actor_extra_fc(hidden_actor)
+
             return self.critic_linear(hidden_critic), hidden_actor, unused_rnn_hxs
         else:
-            # all_skills_actions: num_processes x (num_skills*dim_skill_action*num_skill_action_pred)
+            # we want the skill actions
             # master_action: num_processes x 1
-            skills_actions = []
-            for env_id, skill_id in enumerate(master_action):
-                # for the process I to access the skill J action we need the slice
-                # proc_I_skill_J action beginning is at:
-                # all_skills_actions[I, J x dim_skill_action x num_skill_action_pred]
-                skill_action_begin = skill_id * self.dim_skill_action * self.num_skill_action_pred
-                # proc_I_skill_J action end is at:
-                # all_skills_actions[I, J x dim_skill_action x num_skill_action_pred + dim_skill_action]
-                skill_action_end = skill_action_begin + self.dim_skill_action
-                # so the proc_I_skill_J action is at
-                # all_skills_actions[I, J x dim_skill_action x num_skill_action_pred:
-                #                       J x dim_skill_action x num_skill_action_pred + dim_skill_action]
-                skill_action = all_skills_actions[env_id, skill_action_begin:skill_action_end]
-                skills_actions.append(skill_action)
-            skills_actions = torch.stack(skills_actions)
-            return skills_actions
-
+            skill_actions = []
+            assert len(master_action) == len(master_features)
+            for env_idx, skill_id in enumerate(master_action):
+                skill_action = skills_actions[
+                    env_idx,
+                    self.dim_action_seq * skill_id: self.dim_action_seq * skill_id + self.dim_action]
+                skill_actions.append(skill_action)
+            return torch.stack(skill_actions)

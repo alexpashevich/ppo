@@ -60,8 +60,8 @@ def save(logdir_path, gifs_list_of_dict, epoch):
             try:
                 videos.write_video(frames, os.path.join(gifs_dir, gif_name))
                 np.savez(os.path.join(gifs_dir, '{:02}.npz'.format(idx_gif)),
-                        master_actions=master_actions,
-                        skill_actions=skill_actions)
+                         master_actions=master_actions,
+                         skill_actions=skill_actions)
             except:
                 print('was not able to write the gif')
     print('Wrote {} gifs'.format(len(gifs_list_of_dict)))

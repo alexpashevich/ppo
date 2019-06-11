@@ -6,9 +6,9 @@ import glob
 import numpy as np
 import json
 
-# import ppo.tools.utils as utils
-from ppo.tools.utils import get_device, evaluate, seed_torch
-from ppo.tools.envs import make_vec_envs
+from bc.utils.misc import get_device
+from ppo.tools.misc import seed_torch
+from ppo.scripts.utils import evaluate
 from ppo.tools.log import init_writers, log_eval
 from ppo.tools.gifs import save as save_gifs
 
@@ -44,10 +44,12 @@ def get_args():
                         help='last epoch to evaluate')
     parser.add_argument('--epochs-list', type=json.loads, default=None,
                         help='list of epochs to evaluate')
+    parser.add_argument('--timescale', type=int, default=None,
+                        help='timescale')
     args = parser.parse_args()
     return args
 
-def run_evaluation(load_path, args, device, epoch, eval_envs):
+def run_evaluation(load_path, args, device, epoch, eval_envs, timescale):
     if str(device) == 'cpu':
         load_tuple = torch.load(load_path, map_location=lambda storage, loc: storage)
     else:
@@ -59,6 +61,8 @@ def run_evaluation(load_path, args, device, epoch, eval_envs):
     args_old.num_eval_episodes = args.num_episodes
     args_old.seed = args.seed
     args_old.save_gifs = args.save_gifs
+    if timescale is not None:
+        args_old.timescale = timescale
 
     if args.same_path_for_json and args_old.checkpoint_path is not None:
         load_dir = os.path.dirname(load_path)
@@ -127,7 +131,7 @@ def main():
             #     continue
             start = time.time()
             stats, gifs, num_env_steps, eval_envs = run_evaluation(
-                load_path, args, device, epoch, eval_envs)
+                load_path, args, device, epoch, eval_envs, args.timescale)
             if len(load_paths_sorted) == 1:
                 eval_envs = None
                 args.seed += args.num_episodes

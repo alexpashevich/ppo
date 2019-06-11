@@ -1,5 +1,8 @@
 import torch
+import numpy as np
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
+
+from ppo.tools import misc
 
 
 def _flatten_helper(T, N, _tensor):
@@ -7,9 +10,18 @@ def _flatten_helper(T, N, _tensor):
 
 
 class RolloutStorage(object):
-    def __init__(self, num_steps, num_processes, obs_shape, action_space, recurrent_hidden_state_size):
+    def __init__(self,
+                 num_steps,
+                 num_processes,
+                 obs_shape,
+                 action_space,
+                 recurrent_hidden_state_size,
+                 action_memory=0):
+        # num_steps *= num_processes
+        num_steps *= max(int(np.sqrt(num_processes)), 2)
         self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
-        self.recurrent_hidden_states = torch.zeros(num_steps + 1, num_processes, recurrent_hidden_state_size)
+        self.recurrent_hidden_states = torch.zeros(
+            num_steps + 1, num_processes, recurrent_hidden_state_size)
         self.rewards = torch.zeros(num_steps, num_processes, 1)
         self.value_preds = torch.zeros(num_steps + 1, num_processes, 1)
         self.returns = torch.zeros(num_steps + 1, num_processes, 1)
@@ -24,7 +36,9 @@ class RolloutStorage(object):
         self.masks = torch.ones(num_steps + 1, num_processes, 1)
 
         self.num_steps = num_steps
-        self.step = 0
+        self.num_processes = num_processes
+        self.action_memory = action_memory
+        self.steps = np.zeros(num_processes, dtype=np.int32)
 
     def to(self, device):
         self.obs = self.obs.to(device)
@@ -36,24 +50,72 @@ class RolloutStorage(object):
         self.actions = self.actions.to(device)
         self.masks = self.masks.to(device)
 
-    def insert(self, obs, recurrent_hidden_states, actions, action_log_probs, value_preds, rewards, masks):
-        self.obs[self.step + 1].copy_(obs)
-        self.recurrent_hidden_states[self.step + 1].copy_(recurrent_hidden_states)
-        self.actions[self.step].copy_(actions)
-        self.action_log_probs[self.step].copy_(action_log_probs)
-        self.value_preds[self.step].copy_(value_preds)
-        self.rewards[self.step].copy_(rewards)
-        self.masks[self.step + 1].copy_(masks)
+    def insert(self,
+               obs,
+               recurrent_hidden_states,
+               actions,
+               action_log_probs,
+               value_preds,
+               rewards,
+               masks,
+               indices=None):
+        if indices is None:
+            indices = np.range(self.num_processes)
+        for index in indices:
+            step_value = self.steps[index]
+            self.obs[step_value + 1, index].copy_(obs[index])
+            self.recurrent_hidden_states[step_value + 1, index].copy_(recurrent_hidden_states[index])
+            self.actions[step_value, index].copy_(actions[index])
+            self.action_log_probs[step_value, index].copy_(action_log_probs[index])
+            self.value_preds[step_value, index].copy_(value_preds[index])
+            self.rewards[step_value, index].copy_(rewards[index])
+            self.masks[step_value + 1, index].copy_(masks[index])
+            self.steps[index] = (self.steps[index] + 1) % self.num_steps
 
-        self.step = (self.step + 1) % self.num_steps
+    def get_last(self, tensor, *args, **kwargs):
+        if tensor is self.actions:
+            return self._get_last_actions(*args, **kwargs)
+        lasts = {}
+        for index in range(tensor.shape[1]):
+            lasts[index] = tensor[self.steps[index], index]
+        return lasts
+
+    def _get_last_actions(self, steps=None, processes=None, as_tensor=False):
+        if self.action_memory == 0:
+            return None
+        if processes is None:
+            processes = np.arange(self.num_processes)
+        if steps is None:
+            steps = self.steps[processes]
+        last_actions = -torch.ones(len(processes), self.action_memory).type_as(self.obs)
+        for idx, (step, process) in enumerate(zip(steps, processes)):
+            process_resets = np.where(self.masks[:step + 1, process, 0] == 0)[0]
+            if process_resets.shape[0] > 0:
+                last_reset = process_resets.max()
+            else:
+                last_reset = 0
+            actions_available = np.clip(step - last_reset, 0, self.action_memory)
+            if actions_available > 0:
+                last_actions_ = self.actions[step - actions_available: step, process, 0]
+                last_actions[idx, -actions_available:] = last_actions_
+        if as_tensor:
+            return last_actions
+        else:
+            last_actions_dict = {}
+            for process in processes:
+                last_actions_dict[process] = last_actions[process]
+            return last_actions_dict
 
     def after_update(self):
-        self.obs[0].copy_(self.obs[-1])
-        self.recurrent_hidden_states[0].copy_(self.recurrent_hidden_states[-1])
-        self.masks[0].copy_(self.masks[-1])
+        last_indices = np.stack((self.steps, np.arange(self.steps.shape[0])))
+        self.obs[0].copy_(self.obs[last_indices])
+        self.recurrent_hidden_states[0].copy_(self.recurrent_hidden_states[last_indices])
+        self.masks[0].copy_(self.masks[last_indices])
+        self.steps = np.zeros_like(self.steps)
 
     def compute_returns(self, next_value, use_gae, gamma, tau):
         if use_gae:
+            raise NotImplementedError
             self.value_preds[-1] = next_value
             gae = 0
             for step in reversed(range(self.rewards.size(0))):
@@ -61,37 +123,43 @@ class RolloutStorage(object):
                 gae = delta + gamma * tau * self.masks[step + 1] * gae
                 self.returns[step] = gae + self.value_preds[step]
         else:
-            self.returns[-1] = next_value
-            for step in reversed(range(self.rewards.size(0))):
-                self.returns[step] = self.returns[step + 1] * \
-                    gamma * self.masks[step + 1] + self.rewards[step]
-
+            for env_idx in next_value.keys():
+                self.returns[self.steps[env_idx], env_idx] = next_value[env_idx]
+                for step in reversed(range(self.steps[env_idx])):
+                    self.returns[step, env_idx] = self.returns[step + 1, env_idx] * \
+                                         gamma * self.masks[step + 1, env_idx] + \
+                                         self.rewards[step, env_idx]
 
     def feed_forward_generator(self, advantages, num_mini_batch):
-        num_steps, num_processes = self.rewards.size()[0:2]
-        batch_size = num_processes * num_steps
+        batch_size = int(np.sum(self.steps))
         assert batch_size >= num_mini_batch, (
-            "PPO requires the number of processes ({}) "
-            "* number of steps ({}) = {} "
+            "PPO requires the number of env steps ({}) "
             "to be greater than or equal to the number of PPO mini batches ({})."
-            "".format(num_processes, num_steps, num_processes * num_steps, num_mini_batch))
+            "".format(batch_size, num_mini_batch))
         mini_batch_size = batch_size // num_mini_batch
         sampler = BatchSampler(SubsetRandomSampler(range(batch_size)), mini_batch_size, drop_last=False)
+        # get the (i, j) indices of the filled transitions in the right order
+        transitions_ordered_indices = np.concatenate(
+            [np.stack((range(s), [i] * s)) for i, s in enumerate(self.steps) if s > 0], axis=1)
         for indices in sampler:
-            obs_batch = self.obs[:-1].view(-1, *self.obs.size()[2:])[indices]
-            recurrent_hidden_states_batch = self.recurrent_hidden_states[:-1].view(-1,
-                self.recurrent_hidden_states.size(-1))[indices]
-            actions_batch = self.actions.view(-1, self.actions.size(-1))[indices]
-            value_preds_batch = self.value_preds[:-1].view(-1, 1)[indices]
-            return_batch = self.returns[:-1].view(-1, 1)[indices]
-            masks_batch = self.masks[:-1].view(-1, 1)[indices]
-            old_action_log_probs_batch = self.action_log_probs.view(-1, 1)[indices]
-            adv_targ = advantages.view(-1, 1)[indices]
+            # replace the batch indices i by rollouts indices (i, j)
+            indices = transitions_ordered_indices[:, indices]
+            obs_batch = self.obs[indices]
+            recurrent_hidden_states_batch = self.recurrent_hidden_states[:-1][indices]
+            actions_batch = self.actions[indices]
+            value_preds_batch = self.value_preds[indices]
+            return_batch = self.returns[indices]
+            masks_batch = self.masks[indices]
+            old_action_log_probs_batch = self.action_log_probs[indices]
+            adv_targ = advantages[indices]
 
-            yield obs_batch, recurrent_hidden_states_batch, actions_batch, \
+            timesteps, env_idxs = indices
+            last_actions_batch = self._get_last_actions(timesteps, env_idxs, as_tensor=True)
+            yield obs_batch, last_actions_batch, recurrent_hidden_states_batch, actions_batch, \
                 value_preds_batch, return_batch, masks_batch, old_action_log_probs_batch, adv_targ
 
     def recurrent_generator(self, advantages, num_mini_batch):
+        raise NotImplementedError
         num_processes = self.rewards.size(1)
         assert num_processes >= num_mini_batch, (
             "PPO requires the number of processes ({}) "
