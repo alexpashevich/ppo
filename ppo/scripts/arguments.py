@@ -13,7 +13,7 @@ def get_args():
     parser.add_argument('--seed', type=int, default=1,
                         help='random seed (default: 1)')
     parser.add_argument('--render', action='store_true', default=False,
-                        help='whether to render the training and the evaluation')
+                        help='whether to render the training')
     parser.add_argument('--pudb', action='store_true', default=False,
                         help='whether to stop the execution for manual commands')
     parser.add_argument('--num-processes', type=int, default=16,
@@ -76,15 +76,6 @@ def get_args():
     # full state stuff
     parser.add_argument('--mime-action-space', type=str, default=None,
                         help='number of last actions to pass to the agent')
-    # evaluation
-    parser.add_argument('--num-eval-episodes', type=int, default=8,
-                        help='number of episodes to use in evaluation')
-    parser.add_argument('--eval-interval', type=int, default=10,
-                        help='eval interval, one eval per n updates (default: None)')
-    parser.add_argument('--eval-max-length-factor', type=float, default=1.0,
-                        help='horizon for eval episodes is the max length (train) multiplied by this')
-    parser.add_argument('--no-eval-offline', action='store_true', default=False,
-                        help='whether to only save the eval checkpoints for the offline evaluation')
     # logging
     parser.add_argument('--logdir', default='./logs/',
                         help='directory to save agent logs (default: ./logs/)')
@@ -116,7 +107,6 @@ def get_args():
     if not isinstance(args.timescale, dict):
         print('WARNING: args.timescale is not a dict')
     args.recurrent_policy = False  # turn off recurrent policies support
-    args.eval_offline = not args.no_eval_offline
     if args.dask_batch_size is None:
         args.dask_batch_size = max(1, int(args.num_processes / 2))
     if args.num_master_steps_per_update is None:

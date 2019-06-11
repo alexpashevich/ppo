@@ -28,9 +28,9 @@ def init_training(args, logdir):
     if loaded_dict:
         args = loaded_dict['args']
     else:
-        args, bc_model, bc_statistics = load.bc_checkpoint(args, device)
+        args, bc_model, bc_statistics = load.bc_model(args, device)
     misc.seed_exp(args)
-    log.init_writers(os.path.join(logdir, 'train'), os.path.join(logdir, 'eval'))
+    log.init_writers(os.path.join(logdir, 'train'), eval_logdir=None)
     if args.write_gifs:
         args.gifdir = os.path.join(logdir, 'gifs')
         print('Gifs will be written to {}'.format(args.gifdir))
@@ -41,7 +41,7 @@ def init_training(args, logdir):
                     os.mkdir(os.path.join(args.gifdir, '{:02d}'.format(env_idx)))
 
     # create the parallel envs
-    envs_train = DaskEnv(args)
+    envs = DaskEnv(args)
 
     # create the policy
     action_space = Discrete(len(args.skills_mapping))
@@ -50,7 +50,7 @@ def init_training(args, logdir):
         policy.reset()
         start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
     else:
-        policy = utils.create_policy(args, envs_train, action_space, bc_model, bc_statistics)
+        policy = utils.create_policy(args, envs, action_space, bc_model, bc_statistics)
         start_step, start_epoch = 0, 0
     policy.to(device)
 
@@ -59,12 +59,12 @@ def init_training(args, logdir):
 
     if loaded_dict:
         # load normalization and optimizer statistics
-        envs_train.obs_running_stats = loaded_dict['obs_running_stats']
+        envs.obs_running_stats = loaded_dict['obs_running_stats']
         load.optimizer(agent.optimizer, loaded_dict['optimizer_state_dict'], device)
 
     exp_dict = dict(
         device=device,
-        envs_train=envs_train,
+        envs=envs,
         start_epoch=start_epoch,
         start_step=start_step,
         action_space=action_space,
@@ -84,21 +84,15 @@ def main():
     logdir = os.path.join(args.logdir, args.timestamp)
     args, policy, agent, stats_global, stats_local, exp_vars = init_training(args, logdir)
     misc.print_gpu_usage(exp_vars.device)
-    envs_train, envs_eval = exp_vars.envs_train, None
+    envs = exp_vars.envs
     action_space_skills = Box(-np.inf, np.inf, (args.bc_args['dim_action'],), dtype=np.float)
     rollouts, obs = utils.create_rollout_storage(
-        args, envs_train, policy, exp_vars.action_space, action_space_skills, exp_vars.device)
-
+        args, envs, policy, exp_vars.action_space, action_space_skills, exp_vars.device)
     start = time.time()
 
-    if hasattr(policy.base, 'resnet'):
-        assert_tensors = utils.create_frozen_skills_check(obs, policy)
-
     if args.pudb:
-        skill_sequence = [5, 0, 1, 2, 3, 4, 6, 0, 1, 2, 3]
-        utils.perform_skill_sequence(skill_sequence, obs, policy, envs_train, args)
         import pudb; pudb.set_trace()
-    epoch, env_steps, env_steps_cached = exp_vars.start_epoch, exp_vars.start_step, exp_vars.start_step
+    epoch, env_steps = exp_vars.start_epoch, exp_vars.start_step
     reward = torch.zeros((args.num_processes, 1)).type_as(obs[0])
     need_master_action, policy_values_cache = np.ones((args.num_processes,)), None
     while True:
@@ -118,7 +112,7 @@ def main():
 
             # Observe reward and next obs
             obs, reward, done, infos, need_master_action = utils.do_master_step(
-                action, obs, reward, policy, envs_train, args)
+                action, obs, reward, policy, envs, args)
             master_steps_done += np.sum(need_master_action)
             pbar.update(np.sum(need_master_action))
 
@@ -144,19 +138,6 @@ def main():
                               for info in np.array(infos)[np.where(need_master_action)[0]]])
         pbar.close()
 
-        env_steps_new = env_steps - env_steps_cached
-        env_steps_cached = env_steps
-        print('Environment steps per 1 master step (in average): {:.1f}'.format(
-            env_steps_new / master_steps_done))
-        print('Environment steps per process (in average): {:.1f} (max_length = {})'.format(
-            env_steps_new / args.num_processes, args.max_length))
-        if (env_steps_new / args.num_processes / args.max_length > 1.5 or
-            env_steps_new / args.num_processes / args.max_length < 0.5):
-            print(colored((
-                'Ratio of average number of environment steps per max-length is {:.2f}, ' +
-                'consider changing --max-length or --num-master-steps-per-update').format(
-                    env_steps_new / args.num_processes / args.max_length), 'yellow'))
-
         # master policy training
         with torch.no_grad():
             next_value = policy.get_value_detached(
@@ -168,14 +149,11 @@ def main():
         value_loss, action_loss, dist_entropy = agent.update(rollouts)
         rollouts.after_update()
 
-        # assert that the skills have not been changed by ppo
-        if hasattr(policy.base, 'resnet'):
-            utils.do_frozen_skills_check(policy, *assert_tensors)
-
         # saving the model
         if epoch % args.save_interval == 0:
+            print('Saving the model after epoch {} for offline evaluation'.format(epoch))
             log.save_model(
-                logdir, policy, agent.optimizer, epoch, env_steps, exp_vars.device, envs_train, args,
+                logdir, policy, agent.optimizer, epoch, env_steps, exp_vars.device, envs, args,
                 stats_global, stats_local)
 
         # logging
@@ -186,19 +164,6 @@ def main():
             if 'Cam' in args.env_name:
                 imageio.imwrite(os.path.join(logdir, 'eval/obs_{}.png'.format(epoch)),
                                 list(obs.values())[0][0].cpu().numpy())
-
-        # evaluating or saving for offline evaluation
-        is_eval_time = args.eval_interval > 0 and (epoch % args.eval_interval == 0)
-        if len(stats_global['length']) > 0 and is_eval_time:
-            log.save_model(
-                logdir, policy, agent.optimizer, epoch, env_steps, exp_vars.device, envs_train, args,
-                stats_global, stats_local)
-            if not args.eval_offline:
-                envs_eval, stats_eval = utils.evaluate(
-                    policy, args, exp_vars.device, envs_train, envs_eval)
-                log.log_eval(env_steps, stats_eval)
-            else:
-                print('Saving the model after epoch {} for the offline evaluation'.format(epoch))
         epoch += 1
         if env_steps > args.num_frames:
             print('Number of env steps reached the maximum number of frames')
