@@ -66,7 +66,6 @@ class MasterPolicy(nn.Module):
             env_timescale_merged_max = sum([
                 self.skill_timescales[str(env_skill_real)] for env_skill_real in env_mapping_list])
             assert self.skill_timesteps[env_idx] < env_timescale_merged_max
-            # print('skill ts[{}] = {}'.format(env_idx, self.skill_timesteps[env_idx]))
 
             # get the real action
             env_skill_counter = 0
@@ -91,15 +90,12 @@ class MasterPolicy(nn.Module):
         return master_action_real
 
     def get_worker_action(self, master_action, obs_dict):
-        # print('action_master = {}'.format(
-        #     [action.item() for env_idx, action in sorted(master_action.items())]))
         obs_tensor, env_idxs = misc.dict_to_tensor(obs_dict)
         master_action_real = self.map_master_action(master_action, env_idxs)
-        # print('action_master_real = {}'.format(
-        #     [action.item() for action in master_action_real]))
         action_tensor = self.base(obs_tensor, None, None, None, master_action=master_action_real)
         action_tensors_dict, env_idxs = misc.tensor_to_dict(action_tensor, env_idxs)
-        action_tensors_dict_numpys = {key: value.cpu().numpy() for key, value in action_tensors_dict.items()}
+        action_tensors_dict_numpys = {key: value.cpu().numpy()
+                                      for key, value in action_tensors_dict.items()}
         action_dicts_dict = {}
         master_action_real_dict, _ = misc.tensor_to_dict(master_action_real, env_idxs)
         for env_idx, action_tensor in action_tensors_dict_numpys.items():
@@ -205,7 +201,7 @@ class ResnetBase(NNBase):
             bc_args=None,
             master_type='conv',
             master_num_channels=64,
-            master_conv_filters=1,
+            master_conv_filters=3,
             **unused_kwargs):
         super(ResnetBase, self).__init__(master_num_channels)
 
@@ -216,47 +212,17 @@ class ResnetBase(NNBase):
         self.resnet = bc_model.net.module
         self.resnet.return_features = True
 
-        # init_ = lambda m: misc.init(
-        #     m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
-
-        if '/' in master_type:
-            self.master_type, self.master_type_memory = master_type.split('/')
-        else:
-            self.master_type, self.master_type_memory = master_type, 'normal'
-
-        assert self.master_type_memory in ('normal', 'extra_fc_concat', 'extra_fc_memory', 'conv_stack')
-        if self.master_type_memory != 'normal':
-            assert self.action_memory > 0
-
-        if self.master_type_memory == 'extra_fc_concat':
-            # apply 1 FC layer on top of the concatenation of skills and memory
-            self.actor_extra_fc = nn.Sequential(
-                nn.ReLU(),
-                nn.Linear(self._hidden_size + self.action_memory, master_num_channels))
-            self.critic_extra_fc = nn.Sequential(
-                nn.ReLU(),
-                nn.Linear(self._hidden_size + self.action_memory, master_num_channels))
-        if self.master_type_memory == 'extra_fc_memory':
-            # apply 1 FC layer on top of the memory and concatenate it with the vision output
-            self.memory_extra_fc = nn.Sequential(
-                nn.Linear(self.action_memory, self.action_memory),
-                nn.ReLU())
-
-        inplanes = bc_args['features_dim']
-        if self.master_type_memory == 'conv_stack':
-            # make a tensor of action_memory x 7 x 7 and stack it to the conv activations
-            inplanes += self.action_memory
+        self.master_type = master_type
 
         self.actor, self.critic = [self._create_head(
             master_type=self.master_type,
             num_skills=self.num_skills,
             num_channels=master_num_channels,
-            inplanes=inplanes,
+            inplanes=bc_args['features_dim'],
             size_conv_filters=master_conv_filters) for _ in range(2)]
 
         init_ = lambda m: misc.init(
             m, nn.init.orthogonal_, lambda x: nn.init.constant_(x, 0))
-
         self.critic_linear = init_(nn.Linear(self.output_size, 1))
 
         self.train()
@@ -273,22 +239,20 @@ class ResnetBase(NNBase):
         else:
             return head_conv
 
-    @property
-    def output_size(self):
-        if self.master_type_memory in ('normal', 'extra_fc_memory'):
-            return self._hidden_size + self.action_memory
-        else:
-            return self._hidden_size
+    def _get_skill_actions(self, master_action, skills_actions):
+        skill_actions = []
+        for env_idx, skill_id in enumerate(master_action):
+            skill_action = skills_actions[
+                env_idx,
+                self.dim_action_seq * skill_id: self.dim_action_seq * skill_id + self.dim_action]
+            skill_actions.append(skill_action)
+        return torch.stack(skill_actions)
 
     def forward(self, inputs, actions_memory, master_action=None):
-        # we now reshape the observations inside each environment
         skills_actions, master_features = self.resnet(inputs)
 
         if master_action is None:
-            # this is the policy step itself
-            if self.master_type_memory == 'conv_stack':
-                actions_memory = actions_memory[..., None, None].repeat(1, 1, 7, 7)
-                master_features = torch.cat((master_features, actions_memory), dim=1)
+            # we want the master actions
             hidden_critic = self.critic(master_features.detach())
             hidden_actor = self.actor(master_features.detach())
             if self.master_type != 'fc':
@@ -297,25 +261,18 @@ class ResnetBase(NNBase):
                     assert tensor.shape[2] == 7 and tensor.shape[3] == 7
                 hidden_critic = F.avg_pool2d(hidden_critic, hidden_critic.shape[-1])[..., 0, 0]
                 hidden_actor = F.avg_pool2d(hidden_actor, hidden_actor.shape[-1])[..., 0, 0]
-            if actions_memory is not None and self.master_type_memory != 'conv_stack':
+            if actions_memory is not None:
+                # normalize the actions memory to be in [-1, 1]
                 actions_memory = 2 * actions_memory / (self.num_skills - 1) - 1
-                if self.master_type_memory == 'extra_fc_memory':
-                    actions_memory = self.memory_extra_fc(actions_memory)
                 hidden_critic = torch.cat((hidden_critic, actions_memory), dim=1)
                 hidden_actor = torch.cat((hidden_actor, actions_memory), dim=1)
-            if self.master_type_memory == 'extra_fc_concat':
-                hidden_critic = self.critic_extra_fc(hidden_critic)
-                hidden_actor = self.actor_extra_fc(hidden_actor)
 
             return self.critic_linear(hidden_critic), hidden_actor
         else:
-            # we want the skill actions
-            # master_action: num_processes x 1
-            skill_actions = []
+            # we want the skill actions from the BC checkpoint
             assert len(master_action) == len(master_features)
-            for env_idx, skill_id in enumerate(master_action):
-                skill_action = skills_actions[
-                    env_idx,
-                    self.dim_action_seq * skill_id: self.dim_action_seq * skill_id + self.dim_action]
-                skill_actions.append(skill_action)
-            return torch.stack(skill_actions)
+            return self._get_skill_actions(master_action, skills_actions)
+
+    @property
+    def output_size(self):
+        return self._hidden_size + self.action_memory
