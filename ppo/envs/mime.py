@@ -4,7 +4,6 @@ import torch
 import os
 import json
 import itertools
-import faulthandler
 import numpy as np
 from bc.utils.videos import write_video
 
@@ -13,7 +12,7 @@ from dask.distributed import Pub, Sub
 
 from bc.dataset import Frames, Actions
 from bc.dataset.augmentation import Augmentation
-from ppo.tools import misc
+from ppo.parts import misc
 
 
 class MimeEnv:
@@ -27,9 +26,6 @@ class MimeEnv:
         self.step_counter = 0
         self.step_counter_after_new_action = 0
         self.reset_env(reset_mime=False)
-
-        # make the env to print all the logs
-        faulthandler.enable()
 
         # start the environment loop
         self.env_loop()
@@ -105,7 +101,6 @@ class MimeEnv:
         env.seed(self.env_idx + seed)
         if hasattr(env.unwrapped.scene, 'set_rl_mode'):
             env.unwrapped.scene.set_rl_mode(hrlbc=self.hrlbc_setup)
-            # env.unwrapped.scene.set_restricted_rand_cam()
         else:
             raise NotImplementedError
         if self.max_length is not None:
@@ -145,7 +140,6 @@ class MimeEnv:
             return obs
         # define new augmentation path at each reset
         self.augmentation = Augmentation(self.augmentation_str)
-        # TODO: remove hardcoded value
         self.augmentation.sample_sequence(img_size=(240, 240))
 
     def update_info(self, info):

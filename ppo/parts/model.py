@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+from ppo.parts import misc
 from ppo.parts.distributions import Categorical, DiagGaussian
-import ppo.tools.misc as misc
 
 from bc.dataset import Actions
 from bc.net.architectures.resnet import utils as resnet_utils

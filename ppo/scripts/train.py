@@ -6,9 +6,8 @@ import numpy as np
 from tqdm import tqdm
 from gym.spaces import Box
 
-from ppo.tools import misc
-from ppo.tools import log
-from ppo.tools import stats
+from ppo.parts import log
+from ppo.parts import stats
 from ppo.scripts import utils
 from ppo.scripts.arguments import get_args
 

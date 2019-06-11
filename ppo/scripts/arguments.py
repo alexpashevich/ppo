@@ -36,7 +36,11 @@ def get_args():
     parser.add_argument('--num-mini-batch', type=int, default=16,
                         help='number of batches for ppo (default: 32)')
     parser.add_argument('--num-master-steps-per-update', type=int, default=None,
-                        help='number of forward steps in A2C (default: 5)')
+                        help='the ppo batch size')
+    parser.add_argument('--gamma', type=float, default=0.99,
+                        help='discount factor for rewards (default: 0.99)')
+    parser.add_argument('--eps', type=float, default=1e-5,
+                        help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
     # loss and clippings
     parser.add_argument('--value-loss-coef', type=float, default=1.,
                         help='value loss coefficient (default: 0.5)')
@@ -46,12 +50,6 @@ def get_args():
                         help='max norm of gradients (default: 0.5)')
     parser.add_argument('--clip-param', type=float, default=0.2,
                         help='ppo clip parameter (default: 0.2)')
-    # returns computation
-    parser.add_argument('--gamma', type=float, default=0.99,
-                        help='discount factor for rewards (default: 0.99)')
-    # optimizer
-    parser.add_argument('--eps', type=float, default=1e-5,
-                        help='RMSprop/Adam optimizer epsilon (default: 1e-5)')
     # hieararchy
     parser.add_argument('--hrlbc-setup', action='store_true', default=False,
                         help='use the setup with pretrained with BC skills')

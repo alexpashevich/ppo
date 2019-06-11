@@ -5,6 +5,7 @@ import glob
 import shutil
 from termcolor import colored
 
+# TODO: remove or update
 HOME = os.environ['HOME']
 parser = argparse.ArgumentParser()
 parser.add_argument('--logdir', type=str, default='{}/Logs/agents'.format(HOME),

@@ -5,10 +5,10 @@ import numpy as np
 from argparse import Namespace
 from gym.spaces import Discrete
 
-from ppo.tools import misc
-from ppo.tools import stats
-from ppo.tools import load
-from ppo.tools import log
+from ppo.parts import misc
+from ppo.parts import stats
+from ppo.parts import load
+from ppo.parts import log
 from ppo.parts.algo import PPO
 from ppo.parts.model import MasterPolicy
 from ppo.parts.storage import RolloutStorage
