@@ -6,8 +6,6 @@ import json
 def get_args():
     parser = argparse.ArgumentParser(description='RL')
     # general
-    parser.add_argument('--algo', default='ppo',
-                        help='algorithm to use: a2c | ppo | acktr')
     parser.add_argument('--env-name', default='UR5-BowlCamEnv-v0',
                         help='environment to train on (default: UR5-BowlCamEnv-v0)')
     parser.add_argument('--seed', type=int, default=1,
@@ -103,7 +101,6 @@ def get_args():
     assert args.skills_mapping is not None
     if args.skills_mapping is None:
         print('WARNING: skills_mapping is not specified')
-    assert args.algo == 'ppo'
     if not isinstance(args.timescale, dict):
         print('WARNING: args.timescale is not a dict')
     args.recurrent_policy = False  # turn off recurrent policies support

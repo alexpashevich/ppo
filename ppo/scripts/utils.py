@@ -1,14 +1,80 @@
+import os
 import torch
-import copy
 import numpy as np
 
-from ppo.algo.ppo import PPO
+from argparse import Namespace
+from gym.spaces import Discrete
+
+from ppo.tools import misc
+from ppo.tools import stats
+from ppo.tools import load
+from ppo.tools import log
+from ppo.parts.algo import PPO
 from ppo.parts.model import MasterPolicy
 from ppo.parts.storage import RolloutStorage
 from ppo.envs.dask import DaskEnv
 
-from ppo.tools import stats
-from ppo.tools import misc
+import bc.utils.misc as bc_misc
+
+
+def init_training(args, logdir):
+    # get the device before loading to enable the GPU/CPU transfer
+    device = torch.device(bc_misc.get_device(args.device))
+    print('Running the experiments on {}'.format(device))
+
+    # try to load from a checkpoint
+    loaded_dict = load.ppo_model(logdir, device)
+    if loaded_dict:
+        args = loaded_dict['args']
+    else:
+        args, bc_model, bc_statistics = load.bc_model(args, device)
+    misc.seed_exp(args)
+    log.init_writers(os.path.join(logdir, 'train'), eval_logdir=None)
+    if args.write_gifs:
+        args.gifdir = os.path.join(logdir, 'gifs')
+        print('Gifs will be written to {}'.format(args.gifdir))
+        if not os.path.exists(args.gifdir):
+            os.mkdir(args.gifdir)
+            for env_idx in range(args.num_processes):
+                if not os.path.exists(os.path.join(args.gifdir, '{:02d}'.format(env_idx))):
+                    os.mkdir(os.path.join(args.gifdir, '{:02d}'.format(env_idx)))
+
+    # create the parallel envs
+    envs = DaskEnv(args)
+
+    # create the policy
+    action_space = Discrete(len(args.skills_mapping))
+    if loaded_dict:
+        policy = loaded_dict['policy']
+        policy.reset()
+        start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
+    else:
+        policy = create_policy(args, envs, action_space, bc_model, bc_statistics)
+        start_step, start_epoch = 0, 0
+    policy.to(device)
+
+    # create the PPO algo
+    agent = create_agent(args, policy)
+
+    if loaded_dict:
+        # load normalization and optimizer statistics
+        envs.obs_running_stats = loaded_dict['obs_running_stats']
+        load.optimizer(agent.optimizer, loaded_dict['optimizer_state_dict'], device)
+
+    exp_dict = dict(
+        device=device,
+        envs=envs,
+        start_epoch=start_epoch,
+        start_step=start_step,
+        action_space=action_space,
+    )
+
+    # create or load stats
+    if loaded_dict:
+        stats_global, stats_local = loaded_dict['stats_global'], loaded_dict['stats_local']
+    else:
+        stats_global, stats_local = stats.init(args.num_processes)
+    return args, policy, agent, stats_global, stats_local, Namespace(**exp_dict)
 
 
 def create_policy(args, envs, action_space, bc_model, bc_statistics):
@@ -70,73 +136,12 @@ def get_policy_values(
         return value, action, log_prob, recurrent_states
 
 
-def maybe_merge_skills_3_and_4(
-        action_master, need_master_action, done_envs, info_envs, skills_34_were_switched, args):
-    if not args.merge_skills_3_and_4:
-        return action_master, need_master_action, skills_34_were_switched
-    # action_master_prev = {env_idx: torch.tensor(skill) for env_idx, skill in action_master.items()}
-    for env_idx, skill_tensor in action_master.items():
-        if skill_tensor.item() == 4:
-            if skills_34_were_switched[env_idx] and need_master_action[env_idx]:
-                # we manually switched 3 to 4 earlier
-                # now we want to change the merge_switch_env_idxs to False
-                # let the master choose another action
-                skills_34_were_switched[env_idx] = 0
-                # print('action 4 of env {} is done'.format(env_idx))
-        elif skill_tensor.item() == 3:
-            if need_master_action[env_idx]:
-                assert skills_34_were_switched[env_idx] == 0
-                if done_envs[env_idx]:
-                    # env is done during the skill 3, do nothing
-                    # let the master choose another action
-                    # print('env {} is done during the skill 3'.format(env_idx))
-                    continue
-                if info_envs[env_idx]['silency_triggered']:
-                    # env has triggered the silency condition for the skill 3
-                    # let the master choose another action
-                    # print('env {} skill 3 is silent'.format(env_idx))
-                    continue
-                # env has finished doing the skills 3, switch it to 4 and fool the need_master_action
-                # print('switching for env {}'.format(env_idx))
-                action_master[env_idx] = torch.tensor(skill_tensor + 1)
-                need_master_action[env_idx] = 0
-                skills_34_were_switched[env_idx] = 1
-    # for env_idx, skill_tensor in action_master_prev.items():
-    #     if skill_tensor.item() != action_master[env_idx].item():
-    #         print('action_master = {} after skills merge'.format(
-    #             [action.item() for env_idx, action in sorted(action_master.items())]))
-    #         break
-
-    return action_master, need_master_action, skills_34_were_switched
-
-
-def update_action_master(action_master, skills_34_were_merged, args):
-    if not args.merge_skills_3_and_4:
-        return action_master
-    action_master_copy = {}
-    for env_idx, skill_tensor in action_master.items():
-        if skill_tensor.item() < 3:
-            action_master_copy[env_idx] = torch.tensor(skill_tensor)
-        elif skill_tensor.item() > 3:
-            action_master_copy[env_idx] = torch.tensor(skill_tensor + 1)
-        else:
-            if not skills_34_were_merged[env_idx]:
-                # the master chose skill 3 which should not be changed
-                action_master_copy[env_idx] = torch.tensor(skill_tensor)
-            else:
-                # we manually switched 3 to 4 and want to keep it for now
-                action_master_copy[env_idx] = torch.tensor(skill_tensor + 1)
-    return action_master_copy
-
-
 def do_master_step(action_master, obs, reward_master, policy, envs, args):
     # we expect the action_master to have an action for each env
     # obs contains observations only for the envs that did a step and need a new skill action
     assert len(action_master.keys()) == envs.num_processes
     info_master = np.array([None] * envs.num_processes)
     done_master = np.array([False] * envs.num_processes)
-    # print('action_master = {}'.format(
-    #     [action.item() for env_idx, action in sorted(action_master.items())]))
     while True:
         if args.hrlbc_setup:
             # get the skill action for env_idx in obs.keys()
@@ -158,7 +163,6 @@ def do_master_step(action_master, obs, reward_master, policy, envs, args):
             policy.report_skills_switch(need_master_action)
             break
 
-    # print('need_master_a = {}'.format(need_master_action))
     return (obs, reward_master, done_master, info_master, need_master_action)
 
 

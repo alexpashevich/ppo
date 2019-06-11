@@ -1,12 +1,9 @@
 import torch
 import random
-import os
-import GPUtil
 import torch.nn as nn
 import numpy as np
 
 
-# Necessary for my KFAC implementation.
 class AddBias(nn.Module):
     def __init__(self, bias):
         super(AddBias, self).__init__()
@@ -77,12 +74,3 @@ def pudb():
         set_trace()
     except:
         pass
-
-
-def print_gpu_usage(device):
-    if str(device) == 'cuda' and 'CUDA_VISIBLE_DEVICES' in os.environ:
-        gpu_id = int(os.environ['CUDA_VISIBLE_DEVICES'])
-        gpu = GPUtil.getGPUs()[gpu_id]
-        print('Using {}% of GPU memory ({}/{}MB)'.format(
-            int(gpu.memoryUsed / gpu.memoryTotal * 100),
-            int(gpu.memoryUsed), int(gpu.memoryTotal)))

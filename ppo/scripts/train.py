@@ -4,86 +4,19 @@ import torch
 import imageio
 import numpy as np
 from tqdm import tqdm
-from gym.spaces import Discrete, Box
-from termcolor import colored
-from argparse import Namespace
+from gym.spaces import Box
 
-import bc.utils.misc as bc_misc
 from ppo.tools import misc
 from ppo.tools import log
-from ppo.tools import load
 from ppo.tools import stats
 from ppo.scripts import utils
-from ppo.envs.dask import DaskEnv
 from ppo.scripts.arguments import get_args
-
-
-def init_training(args, logdir):
-    # get the device before loading to enable the GPU/CPU transfer
-    device = torch.device(bc_misc.get_device(args.device))
-    print('Running the experiments on {}'.format(device))
-
-    # try to load from a checkpoint
-    loaded_dict = load.ppo_model(logdir, device)
-    if loaded_dict:
-        args = loaded_dict['args']
-    else:
-        args, bc_model, bc_statistics = load.bc_model(args, device)
-    misc.seed_exp(args)
-    log.init_writers(os.path.join(logdir, 'train'), eval_logdir=None)
-    if args.write_gifs:
-        args.gifdir = os.path.join(logdir, 'gifs')
-        print('Gifs will be written to {}'.format(args.gifdir))
-        if not os.path.exists(args.gifdir):
-            os.mkdir(args.gifdir)
-            for env_idx in range(args.num_processes):
-                if not os.path.exists(os.path.join(args.gifdir, '{:02d}'.format(env_idx))):
-                    os.mkdir(os.path.join(args.gifdir, '{:02d}'.format(env_idx)))
-
-    # create the parallel envs
-    envs = DaskEnv(args)
-
-    # create the policy
-    action_space = Discrete(len(args.skills_mapping))
-    if loaded_dict:
-        policy = loaded_dict['policy']
-        policy.reset()
-        start_step, start_epoch = loaded_dict['start_step'], loaded_dict['start_epoch']
-    else:
-        policy = utils.create_policy(args, envs, action_space, bc_model, bc_statistics)
-        start_step, start_epoch = 0, 0
-    policy.to(device)
-
-    # create the PPO algo
-    agent = utils.create_agent(args, policy)
-
-    if loaded_dict:
-        # load normalization and optimizer statistics
-        envs.obs_running_stats = loaded_dict['obs_running_stats']
-        load.optimizer(agent.optimizer, loaded_dict['optimizer_state_dict'], device)
-
-    exp_dict = dict(
-        device=device,
-        envs=envs,
-        start_epoch=start_epoch,
-        start_step=start_step,
-        action_space=action_space,
-    )
-
-    # create or load stats
-    if loaded_dict:
-        stats_global, stats_local = loaded_dict['stats_global'], loaded_dict['stats_local']
-    else:
-        stats_global, stats_local = stats.init(args.num_processes)
-
-    return args, policy, agent, stats_global, stats_local, Namespace(**exp_dict)
 
 
 def main():
     args = get_args()
     logdir = os.path.join(args.logdir, args.timestamp)
-    args, policy, agent, stats_global, stats_local, exp_vars = init_training(args, logdir)
-    misc.print_gpu_usage(exp_vars.device)
+    args, policy, agent, stats_global, stats_local, exp_vars = utils.init_training(args, logdir)
     envs = exp_vars.envs
     action_space_skills = Box(-np.inf, np.inf, (args.bc_args['dim_action'],), dtype=np.float)
     rollouts, obs = utils.create_rollout_storage(
@@ -160,7 +93,6 @@ def main():
         if epoch % args.log_interval == 0 and len(stats_global['length']) > 1:
             log.log_train(
                 env_steps, start, stats_global, action_loss, value_loss, dist_entropy, epoch)
-            misc.print_gpu_usage(exp_vars.device)
             if 'Cam' in args.env_name:
                 imageio.imwrite(os.path.join(logdir, 'eval/obs_{}.png'.format(epoch)),
                                 list(obs.values())[0][0].cpu().numpy())

@@ -2,9 +2,6 @@ from collections import deque
 import numpy as np
 
 
-ALL_STATS = 'return', 'length', 'fail'
-
-
 def init(num_processes, eval=False):
     if not eval:
         # in the beginning of the training we want to have 100 values as well
@@ -22,7 +19,6 @@ def init(num_processes, eval=False):
                     'fail_crash': deque(maxlen=100),
                     'success': success_deque}
     stats_local = {'return': np.array([0] * num_processes, dtype=np.float32),
-                   # 'length': np.array([0] * num_processes, dtype=np.int32),
                    'done_before': np.array([False] * num_processes, dtype=np.bool)}
     return stats_global, stats_local
 

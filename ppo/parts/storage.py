@@ -2,12 +2,6 @@ import torch
 import numpy as np
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
-from ppo.tools import misc
-
-
-def _flatten_helper(T, N, _tensor):
-    return _tensor.view(T * N, *_tensor.size()[2:])
-
 
 class RolloutStorage(object):
     def __init__(self,
@@ -17,7 +11,6 @@ class RolloutStorage(object):
                  action_space,
                  recurrent_hidden_state_size,
                  action_memory=0):
-        # num_steps *= num_processes
         num_steps *= max(int(np.sqrt(num_processes)), 2)
         self.obs = torch.zeros(num_steps + 1, num_processes, *obs_shape)
         self.recurrent_hidden_states = torch.zeros(
